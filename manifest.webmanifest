@@ -1,0 +1,15 @@
+{
+  "name": "Trading Journal",
+  "short_name": "Journal",
+  "description": "Personal trading journal — log trades, track stats, and review performance.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f7f7fb",
+  "theme_color": "#7c5cfc",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
