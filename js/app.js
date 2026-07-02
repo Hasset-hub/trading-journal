@@ -428,6 +428,79 @@ const APP = (() => {
     if (dl) dl.innerHTML = setups.map(s => `<option value="${UTIL.escapeHtml(s)}">`).join('');
   }
 
+  // ---- Screenshot images (compressed to data URLs, stored in localStorage) ----
+  let formScreenshots = [];
+
+  function compressImage(file, maxDim = 1600, quality = 0.82) {
+    return new Promise((resolve, reject) => {
+      if (!file || !file.type || !file.type.startsWith('image/')) { reject(new Error('not an image')); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (Math.max(width, height) > maxDim) {
+            const scale = maxDim / Math.max(width, height);
+            width = Math.round(width * scale);
+            height = Math.round(height * scale);
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = width; canvas.height = height;
+          canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+          try { resolve(canvas.toDataURL('image/jpeg', quality)); }
+          catch (e) { reject(e); }
+        };
+        img.onerror = () => reject(new Error('decode failed'));
+        img.src = reader.result;
+      };
+      reader.onerror = () => reject(new Error('read failed'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files) {
+    const imgs = [...files].filter(f => f.type && f.type.startsWith('image/'));
+    if (!imgs.length) return;
+    let failed = 0;
+    for (const f of imgs) {
+      try { formScreenshots.push(await compressImage(f)); }
+      catch (e) { failed++; }
+    }
+    renderThumbs();
+    if (imgs.length - failed > 0) UTIL.toast(`Added ${imgs.length - failed} image${imgs.length - failed !== 1 ? 's' : ''}.`, 'success');
+    if (failed) UTIL.toast(`${failed} file(s) couldn't be read.`, 'error');
+  }
+
+  function renderThumbs() {
+    const el = document.getElementById('image-thumbs');
+    if (!el) return;
+    el.innerHTML = formScreenshots.map((src, i) => `
+      <div class="image-thumb">
+        <img src="${src}" data-shot-index="${i}" alt="screenshot ${i + 1}" />
+        <button type="button" class="image-thumb-remove" data-remove-shot="${i}" title="Remove" aria-label="Remove image">×</button>
+      </div>`).join('');
+    el.querySelectorAll('[data-shot-index]').forEach(img => img.addEventListener('click', () => openLightbox(img.src)));
+    el.querySelectorAll('[data-remove-shot]').forEach(btn => btn.addEventListener('click', () => {
+      formScreenshots.splice(Number(btn.dataset.removeShot), 1);
+      renderThumbs();
+    }));
+  }
+
+  function openLightbox(src) {
+    let lb = document.getElementById('lightbox');
+    if (!lb) {
+      lb = document.createElement('div');
+      lb.id = 'lightbox';
+      lb.className = 'lightbox hidden';
+      lb.innerHTML = '<button class="lightbox-close" aria-label="Close">×</button><img alt="screenshot" />';
+      document.body.appendChild(lb);
+      lb.addEventListener('click', (e) => { if (e.target !== lb.querySelector('img')) lb.classList.add('hidden'); });
+    }
+    lb.querySelector('img').src = src;
+    lb.classList.remove('hidden');
+  }
+  function closeLightbox() { const lb = document.getElementById('lightbox'); if (lb) lb.classList.add('hidden'); }
+
   function readTradeForm() {
     const f = document.getElementById('trade-form');
     const fd = new FormData(f);
@@ -437,7 +510,7 @@ const APP = (() => {
     const mistakes = [...f.querySelectorAll('input[name="mistakes"]:checked')].map(c => c.value);
     const rulesFollowed = [...f.querySelectorAll('input[name="rulesFollowed"]:checked')].map(c => Number(c.value));
     const tags = (get('tags') || '').split(',').map(s => s.trim()).filter(Boolean);
-    const screenshots = (get('screenshots') || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const screenshots = [...formScreenshots];
 
     return {
       id: get('id') || UTIL.uuid(),
@@ -514,15 +587,20 @@ const APP = (() => {
 
     const trades = STORAGE.getTrades();
     const idx = trades.findIndex(x => x.id === t.id);
-    if (idx >= 0) {
-      t.createdAt = trades[idx].createdAt;
-      trades[idx] = t;
-      UTIL.toast('Trade updated.', 'success');
-    } else {
-      trades.push(t);
-      UTIL.toast('Trade saved.', 'success');
+    const isUpdate = idx >= 0;
+    if (isUpdate) { t.createdAt = trades[idx].createdAt; trades[idx] = t; }
+    else trades.push(t);
+
+    try {
+      STORAGE.saveTrades(trades);
+    } catch (err) {
+      const quota = err && (err.name === 'QuotaExceededError' || /quota|exceeded/i.test(err.message || ''));
+      UTIL.toast(quota
+        ? 'Storage full — your images are too large to save. Remove a screenshot or two, or export a JSON backup and clear old trades.'
+        : 'Could not save: ' + (err.message || err), 'error');
+      return;
     }
-    STORAGE.saveTrades(trades);
+    UTIL.toast(isUpdate ? 'Trade updated.' : 'Trade saved.', 'success');
     resetTradeForm();
     navigate('trades');
   }
@@ -533,6 +611,8 @@ const APP = (() => {
     f.querySelector('[name="id"]').value = '';
     f.querySelector('[name="entryDate"]').value = UTIL.localDatetimeNow();
     document.getElementById('conf-val').value = 5;
+    formScreenshots = [];
+    renderThumbs();
     renderPlaybookRules();
     document.querySelector('.trade-form .section-title').scrollIntoView({ block: 'nearest' });
     updateLiveStats();
@@ -578,7 +658,8 @@ const APP = (() => {
     setVal('thesis', t.thesis);
     setVal('notes', t.notes);
     setVal('lessons', t.lessons);
-    setVal('screenshots', (t.screenshots || []).join('\n'));
+    formScreenshots = (t.screenshots || []).slice();
+    renderThumbs();
 
     f.querySelector(`[name="direction"][value="${t.direction}"]`).checked = true;
     document.getElementById('conf-val').value = t.confidence || 5;
@@ -756,8 +837,9 @@ const APP = (() => {
     if (t.lessons) html += `<div class="trade-detail-section"><h3>Lessons Learned</h3><p>${UTIL.escapeHtml(t.lessons)}</p></div>`;
 
     if (t.screenshots && t.screenshots.length) {
-      html += `<div class="trade-detail-section"><h3>Screenshots</h3>${t.screenshots.map(u =>
-        `<a href="${UTIL.escapeHtml(u)}" target="_blank" rel="noopener" style="display:block;margin-bottom:4px;word-break:break-all;">${UTIL.escapeHtml(u)}</a>`).join('')}</div>`;
+      html += `<div class="trade-detail-section"><h3>Screenshots (${t.screenshots.length})</h3>
+        <div class="detail-shots">${t.screenshots.map((u, i) =>
+          `<img src="${u}" data-detail-shot="${i}" alt="screenshot ${i + 1}" />`).join('')}</div></div>`;
     }
 
     html += `<div class="modal-actions">
@@ -768,6 +850,8 @@ const APP = (() => {
 
     openModal(t.symbol + ' · ' + UTIL.fmtDate(t.entryDate), html);
 
+    document.querySelectorAll('#modal-content .detail-shots img').forEach(img =>
+      img.addEventListener('click', () => openLightbox(img.src)));
     document.querySelector('[data-edit-trade]').addEventListener('click', () => { closeModal(); loadTradeIntoForm(id); });
     document.querySelector('[data-delete-trade]').addEventListener('click', () => {
       if (confirm('Delete this trade permanently?')) {
@@ -1143,6 +1227,20 @@ const APP = (() => {
     document.getElementById('form-reset').addEventListener('click', resetTradeForm);
     document.getElementById('trade-status').addEventListener('change', toggleExitSection);
 
+    // Screenshot uploader: click, drag & drop, paste
+    const drop = document.getElementById('image-drop');
+    const fileInput = document.getElementById('screenshot-input');
+    drop.addEventListener('click', () => fileInput.click());
+    drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInput.click(); } });
+    fileInput.addEventListener('change', e => { addImageFiles(e.target.files); e.target.value = ''; });
+    ['dragenter', 'dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('dragover'); }));
+    drop.addEventListener('dragleave', e => { if (!drop.contains(e.relatedTarget)) drop.classList.remove('dragover'); });
+    drop.addEventListener('drop', e => { e.preventDefault(); drop.classList.remove('dragover'); if (e.dataTransfer && e.dataTransfer.files) addImageFiles(e.dataTransfer.files); });
+    form.addEventListener('paste', e => {
+      const imgs = [...(e.clipboardData && e.clipboardData.items || [])].filter(i => i.type && i.type.startsWith('image/')).map(i => i.getAsFile()).filter(Boolean);
+      if (imgs.length) { e.preventDefault(); addImageFiles(imgs); }
+    });
+
     // Trades filters
     document.getElementById('filter-search').addEventListener('input', e => { state.filters.search = e.target.value; renderTradesTable(); });
     document.getElementById('filter-status').addEventListener('change', e => { state.filters.status = e.target.value; renderTradesTable(); });
@@ -1204,7 +1302,7 @@ const APP = (() => {
     // Keyboard shortcuts
     let gPending = false;
     document.addEventListener('keydown', e => {
-      if (e.key === 'Escape') { closeModal(); return; }
+      if (e.key === 'Escape') { closeLightbox(); closeModal(); return; }
       // Ignore when typing in a field
       const tag = (e.target.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.metaKey || e.ctrlKey || e.altKey) return;

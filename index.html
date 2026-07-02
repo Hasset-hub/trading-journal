@@ -405,8 +405,14 @@
                 <textarea name="lessons" rows="2" placeholder="What is the one thing this trade taught you?"></textarea>
               </div>
               <div class="field">
-                <label>Screenshot URLs (one per line)</label>
-                <textarea name="screenshots" rows="2" placeholder="https://imgur.com/..."></textarea>
+                <label>Screenshots / Chart Images</label>
+                <div class="image-drop" id="image-drop" tabindex="0" role="button" aria-label="Add chart images">
+                  <input type="file" id="screenshot-input" accept="image/*" multiple hidden />
+                  <span class="image-drop-icon">⬆</span>
+                  <span class="image-drop-main"><strong>Click to upload</strong>, drag &amp; drop, or paste (Ctrl+V)</span>
+                  <span class="image-drop-sub">Chart screenshots — PNG/JPG. Auto-compressed &amp; stored locally in your browser.</span>
+                </div>
+                <div class="image-thumbs" id="image-thumbs"></div>
               </div>
             </div>
 

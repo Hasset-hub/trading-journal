@@ -441,6 +441,46 @@ output { font-weight: 700; color: var(--primary); font-variant-numeric: tabular-
 .journal-entry-date { font-weight: 700; margin-bottom: 4px; font-size: 13.5px; }
 .journal-entry-preview { font-size: 12.5px; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.6; }
 
+/* ============================================================ IMAGE UPLOADER */
+.image-drop {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  text-align: center; padding: 22px 18px;
+  border: 1.5px dashed var(--line-2); border-radius: var(--r-md);
+  background: var(--surface-2); color: var(--text-2);
+  cursor: pointer; transition: all 0.16s var(--ease);
+}
+.image-drop:hover, .image-drop:focus-visible { border-color: var(--primary); background: var(--primary-soft); color: var(--text); outline: none; }
+.image-drop.dragover { border-color: var(--primary); background: var(--primary-soft); transform: scale(1.005); }
+.image-drop-icon { font-size: 20px; color: var(--primary); }
+.image-drop-main { font-size: 13px; }
+.image-drop-main strong { color: var(--primary); font-weight: 600; }
+.image-drop-sub { font-size: 11.5px; color: var(--text-3); }
+
+.image-thumbs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.image-thumb { position: relative; width: 108px; height: 82px; border-radius: 9px; overflow: hidden; border: 1px solid var(--line-2); background: var(--surface-2); box-shadow: var(--shadow-sm); }
+.image-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+.image-thumb-remove {
+  position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 6px;
+  background: rgba(15,16,24,0.72); color: #fff; font-size: 15px; line-height: 1;
+  display: grid; place-items: center; backdrop-filter: blur(2px);
+  opacity: 0; transition: opacity 0.15s;
+}
+.image-thumb:hover .image-thumb-remove { opacity: 1; }
+.image-thumb-remove:hover { background: var(--loss); }
+.image-thumb-badge { position: absolute; bottom: 0; left: 0; right: 0; font-size: 10px; text-align: center; padding: 2px; background: rgba(15,16,24,0.6); color: #fff; }
+
+/* Detail-view screenshot grid */
+.detail-shots { display: flex; flex-wrap: wrap; gap: 10px; }
+.detail-shots img { width: 150px; height: 110px; object-fit: cover; border-radius: 9px; border: 1px solid var(--line-2); cursor: zoom-in; transition: transform 0.15s; }
+.detail-shots img:hover { transform: scale(1.02); }
+
+/* Lightbox */
+.lightbox { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 32px; background: rgba(10,11,18,0.86); backdrop-filter: blur(6px); animation: fade 0.18s var(--ease); cursor: zoom-out; }
+.lightbox.hidden { display: none; }
+.lightbox img { max-width: 94vw; max-height: 92vh; border-radius: 10px; box-shadow: var(--shadow-lg); }
+.lightbox-close { position: absolute; top: 20px; right: 24px; width: 40px; height: 40px; border-radius: 10px; background: rgba(255,255,255,0.12); color: #fff; font-size: 22px; display: grid; place-items: center; }
+.lightbox-close:hover { background: rgba(255,255,255,0.22); }
+
 /* ============================================================ INSTANT INSIGHTS */
 .insights-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin-bottom: 18px; }
 .insight-card { display: flex; align-items: center; gap: 13px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 15px 17px; box-shadow: var(--shadow-sm); transition: transform 0.2s var(--ease), box-shadow 0.2s var(--ease); }
