@@ -1,8 +1,8 @@
 // === Service Worker ===
-// Enables offline use and PWA installation. Cache-first with network fallback.
-// Bump CACHE when you change app files to force an update.
+// Network-first: always fetch the freshest files when online (so deploys show up
+// immediately), fall back to cache when offline. Bump CACHE to invalidate old caches.
 
-const CACHE = 'tj-v1';
+const CACHE = 'tj-v2';
 const ASSETS = [
   '/',
   '/index.html',
@@ -33,18 +33,20 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  if (e.request.method !== 'GET') return;
+  const req = e.request;
+  if (req.method !== 'GET') return;
+  if (new URL(req.url).origin !== self.location.origin) return;
+
+  // Network-first with cache fallback + background cache refresh.
   e.respondWith(
-    caches.match(e.request).then((cached) => {
-      const network = fetch(e.request).then((res) => {
-        // Cache same-origin successful responses for next time
-        if (res && res.status === 200 && new URL(e.request.url).origin === self.location.origin) {
+    fetch(req)
+      .then((res) => {
+        if (res && res.status === 200) {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
         }
         return res;
-      }).catch(() => cached);
-      return cached || network;
-    })
+      })
+      .catch(() => caches.match(req).then((cached) => cached || (req.mode === 'navigate' ? caches.match('/index.html') : undefined)))
   );
 });
