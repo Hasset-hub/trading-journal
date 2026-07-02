@@ -717,9 +717,21 @@
   <script src="js/app.js"></script>
   <script>
     // Register the service worker for offline use & installability (HTTPS/localhost only).
+    // Self-updating: when a new deploy is detected, the fresh worker takes over and the
+    // page reloads ONCE so you always see the latest version — no manual hard-refresh.
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').catch(() => { /* ignore on file:// */ });
+      var hadController = !!navigator.serviceWorker.controller;
+      var swReloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', function () {
+        if (swReloaded) return;
+        swReloaded = true;
+        if (hadController) window.location.reload(); // only on updates, not first install
+      });
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          reg.update().catch(function () {});
+          setInterval(function () { reg.update().catch(function () {}); }, 60 * 60 * 1000);
+        }).catch(function () { /* ignore on file:// */ });
       });
     }
   </script>
