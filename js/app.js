@@ -1374,6 +1374,63 @@ const APP = (() => {
     UTIL.toast('Template downloaded.', 'success');
   }
 
+  // ---- Bulk-fix futures trades logged without a contract multiplier ----
+  function fixFuturesTrades() {
+    const trades = STORAGE.getTrades();
+    const candMult = new Map();   // trade id -> multiplier to apply
+    const groups = {};
+    for (const t of trades) {
+      const fm = UTIL.futuresMultiplier(t.symbol);
+      if (!fm) continue;
+      if (Number(t.multiplier) > 0) continue;    // respect an explicit multiplier
+      if (t.assetClass === 'futures') continue;  // already resolves correctly
+      candMult.set(t.id, fm.mult);
+      if (!groups[fm.root]) groups[fm.root] = { name: fm.name, mult: fm.mult, count: 0 };
+      groups[fm.root].count++;
+    }
+
+    if (!candMult.size) {
+      UTIL.toast('No trades need fixing — your futures contracts are already set. ✅', 'success');
+      return;
+    }
+
+    const closed = trades.filter(t => t.status === 'closed');
+    const before = closed.reduce((s, t) => s + UTIL.calcPnL(t), 0);
+    const after = closed.reduce((s, t) =>
+      s + (candMult.has(t.id) ? UTIL.calcPnL({ ...t, assetClass: 'futures', multiplier: candMult.get(t.id) }) : UTIL.calcPnL(t)), 0);
+
+    const rows = Object.entries(groups).sort((a, b) => b[1].count - a[1].count).map(([root, g]) =>
+      `<div class="fix-row"><span>${UTIL.escapeHtml(g.name)} <span class="muted">(${root})</span></span><span class="mono">×$${g.mult}/pt · ${g.count} trade${g.count !== 1 ? 's' : ''}</span></div>`).join('');
+
+    const html = `
+      <p>Found <strong>${candMult.size}</strong> trade${candMult.size !== 1 ? 's' : ''} with recognized futures symbols that aren't using a contract multiplier. Applying will mark ${candMult.size !== 1 ? 'them' : 'it'} as <strong>Futures</strong> with the correct point value:</p>
+      <div class="fix-list">${rows}</div>
+      <div class="trade-detail-section"><h3>Net P&amp;L impact (closed trades)</h3>
+        <p style="font-size:15px"><span class="${UTIL.pnlClass(before)}">${UTIL.fmtMoney(before, {alwaysSign:true})}</span> &nbsp;→&nbsp; <span class="${UTIL.pnlClass(after)}"><strong>${UTIL.fmtMoney(after, {alwaysSign:true})}</strong></span></p>
+        <p class="muted" style="font-size:12px">Only trades whose symbol matches a known contract are touched; anything you set manually is left alone. Tip: export a JSON backup first (Settings → Export) if you want a safety net.</p></div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="fix-futures-apply">Apply to ${candMult.size} trade${candMult.size !== 1 ? 's' : ''}</button>
+      </div>`;
+    openModal('Fix futures contracts', html);
+    document.querySelectorAll('#modal-content [data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
+    document.getElementById('fix-futures-apply').addEventListener('click', () => {
+      const all = STORAGE.getTrades();
+      let fixed = 0;
+      for (const t of all) {
+        if (!candMult.has(t.id)) continue;
+        t.assetClass = 'futures';
+        t.multiplier = candMult.get(t.id);
+        t.updatedAt = new Date().toISOString();
+        fixed++;
+      }
+      STORAGE.saveTrades(all);
+      closeModal();
+      UTIL.toast(`Fixed ${fixed} futures trade${fixed !== 1 ? 's' : ''}.`, 'success');
+      navigate('dashboard');
+    });
+  }
+
   // ---- Keyboard shortcuts help ----
   function showShortcutsHelp() {
     const rows = [
@@ -1503,6 +1560,7 @@ const APP = (() => {
     document.getElementById('import-file').addEventListener('change', e => { if (e.target.files[0]) importJSON(e.target.files[0]); });
     document.getElementById('load-sample').addEventListener('click', loadSampleData);
     document.getElementById('clear-data').addEventListener('click', clearData);
+    document.getElementById('fix-futures').addEventListener('click', fixFuturesTrades);
     document.getElementById('import-csv').addEventListener('click', () => document.getElementById('import-csv-file').click());
     document.getElementById('import-csv-file').addEventListener('change', e => { if (e.target.files[0]) importCSV(e.target.files[0]); e.target.value = ''; });
     document.getElementById('download-template').addEventListener('click', downloadCSVTemplate);
