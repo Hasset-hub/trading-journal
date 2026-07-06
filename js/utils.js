@@ -79,11 +79,70 @@ const UTIL = (() => {
     return sign + r.toFixed(2) + 'R';
   }
 
+  // === Futures contract multipliers (point value in USD per 1.00 price move) ===
+  const FUTURES_MULTIPLIERS = {
+    // Equity index
+    MES: 5, ES: 50, MNQ: 2, NQ: 20, MYM: 0.5, YM: 5, M2K: 5, RTY: 50, EMD: 100, NKD: 5,
+    // Energy
+    MCL: 100, CL: 1000, QM: 500, BZ: 1000, NG: 10000, RB: 42000, HO: 42000,
+    // Metals
+    MGC: 10, GC: 100, SIL: 1000, SI: 5000, HG: 25000, PL: 50, PA: 100,
+    // Rates
+    ZT: 2000, ZF: 1000, ZN: 1000, TN: 1000, ZB: 1000, UB: 1000,
+    // FX
+    M6E: 12500, '6E': 125000, '6B': 62500, '6J': 12500000, '6A': 100000, '6C': 100000, '6S': 125000, '6N': 100000,
+    // Agriculture
+    ZC: 50, ZS: 50, ZW: 50, KE: 50, ZL: 600, ZM: 100, ZO: 50, ZR: 2000,
+    // Softs & livestock
+    SB: 1120, KC: 375, CC: 10, CT: 500, LE: 400, GF: 500, HE: 400,
+    // Crypto (CME)
+    MBT: 0.1, BTC: 5, MET: 0.1, ETH: 50,
+  };
+  const FUTURES_NAMES = {
+    ES: 'E-mini S&P 500', MES: 'Micro E-mini S&P 500', NQ: 'E-mini Nasdaq-100', MNQ: 'Micro E-mini Nasdaq-100',
+    YM: 'E-mini Dow', MYM: 'Micro E-mini Dow', RTY: 'E-mini Russell 2000', M2K: 'Micro E-mini Russell 2000',
+    CL: 'Crude Oil', MCL: 'Micro Crude Oil', NG: 'Natural Gas', RB: 'RBOB Gasoline', HO: 'Heating Oil', BZ: 'Brent Crude',
+    GC: 'Gold', MGC: 'Micro Gold', SI: 'Silver', SIL: 'Micro Silver', HG: 'Copper', PL: 'Platinum', PA: 'Palladium',
+    ZB: '30-Year T-Bond', UB: 'Ultra T-Bond', ZN: '10-Year T-Note', ZF: '5-Year T-Note', ZT: '2-Year T-Note',
+    '6E': 'Euro FX', '6B': 'British Pound', '6J': 'Japanese Yen', '6A': 'Australian Dollar', '6C': 'Canadian Dollar', '6S': 'Swiss Franc',
+    ZC: 'Corn', ZS: 'Soybeans', ZW: 'Wheat', ZL: 'Soybean Oil', ZM: 'Soybean Meal',
+    BTC: 'Bitcoin', MBT: 'Micro Bitcoin', ETH: 'Ether', MET: 'Micro Ether',
+  };
+  const MONTH_CODES = 'FGHJKMNQUVXZ';
+
+  // Detect a known futures contract from a symbol (handles month/year suffixes:
+  // ES, ESZ5, /MESM26, ES1!, MNQ.F, etc.). Returns {root, mult, name} or null.
+  function futuresMultiplier(symbol) {
+    if (!symbol) return null;
+    const s = String(symbol).toUpperCase().replace(/^[\/@]/, '').replace(/\s+/g, '');
+    const roots = Object.keys(FUTURES_MULTIPLIERS).sort((a, b) => b.length - a.length);
+    for (const r of roots) {
+      if (!s.startsWith(r)) continue;
+      const rest = s.slice(r.length);
+      if (rest === '' || MONTH_CODES.includes(rest[0]) || /^[0-9!.]/.test(rest)) {
+        return { root: r, mult: FUTURES_MULTIPLIERS[r], name: FUTURES_NAMES[r] || r };
+      }
+    }
+    return null;
+  }
+
+  // Effective contract multiplier for a trade: an explicit trade.multiplier wins;
+  // otherwise, futures trades auto-resolve from the symbol; everything else is 1.
+  function getMultiplier(trade) {
+    const m = Number(trade.multiplier);
+    if (m && m > 0) return m;
+    if (trade.assetClass === 'futures') {
+      const fm = futuresMultiplier(trade.symbol);
+      if (fm) return fm.mult;
+    }
+    return 1;
+  }
+
   // === Derived trade calculations ===
   function calcPnL(trade) {
     if (!trade.exitPrice || !trade.entryPrice || !trade.quantity) return 0;
     const dir = trade.direction === 'short' ? -1 : 1;
-    const gross = (trade.exitPrice - trade.entryPrice) * trade.quantity * dir;
+    const gross = (trade.exitPrice - trade.entryPrice) * trade.quantity * getMultiplier(trade) * dir;
     const costs = (Number(trade.commission) || 0) + (Number(trade.fees) || 0);
     return gross - costs;
   }
@@ -96,8 +155,8 @@ const UTIL = (() => {
 
   function calcRMultiple(trade) {
     if (!trade.stopLoss || !trade.entryPrice || !trade.quantity) return null;
-    const riskPerShare = Math.abs(trade.entryPrice - trade.stopLoss);
-    const totalRisk = riskPerShare * trade.quantity;
+    const riskPerUnit = Math.abs(trade.entryPrice - trade.stopLoss);
+    const totalRisk = riskPerUnit * trade.quantity * getMultiplier(trade);
     if (totalRisk === 0) return null;
     const pnl = calcPnL(trade);
     return pnl / totalRisk;
@@ -113,12 +172,12 @@ const UTIL = (() => {
 
   function calcPositionValue(trade) {
     if (!trade.entryPrice || !trade.quantity) return 0;
-    return trade.entryPrice * trade.quantity;
+    return trade.entryPrice * trade.quantity * getMultiplier(trade);
   }
 
   function calcRiskDollars(trade) {
     if (!trade.stopLoss || !trade.entryPrice || !trade.quantity) return 0;
-    return Math.abs(trade.entryPrice - trade.stopLoss) * trade.quantity;
+    return Math.abs(trade.entryPrice - trade.stopLoss) * trade.quantity * getMultiplier(trade);
   }
 
   function calcHoldMinutes(trade) {
@@ -224,7 +283,7 @@ const UTIL = (() => {
     uuid, getCurrency,
     fmtMoney, fmtMoneyCompact, fmtPct, fmtNum, fmtDate, fmtDateShort, fmtDateTime, fmtHoldTime, fmtR,
     calcPnL, calcPnLPct, calcRMultiple, calcRiskReward, calcPositionValue, calcRiskDollars, calcHoldMinutes,
-    tradeOutcome, enrich,
+    tradeOutcome, enrich, futuresMultiplier, getMultiplier,
     escapeHtml, pnlClass, downloadFile, toast,
     filterByPeriod, localDatetimeNow, isoToLocalDatetime,
   };

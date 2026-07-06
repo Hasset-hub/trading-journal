@@ -17,6 +17,7 @@ const APP = (() => {
     'trades':    ['Trades', 'Your complete trade history'],
     'analytics': ['Reports', 'Deep performance breakdown'],
     'playbooks': ['Playbooks', 'Your trading strategies & rules'],
+    'ai':        ['AI Coach', 'AI-powered performance review'],
     'journal':   ['Daily Journal', 'Reflect on your trading day'],
     'settings':  ['Settings', 'Account & data management'],
   };
@@ -36,6 +37,7 @@ const APP = (() => {
     if (view === 'trades')    renderTradesTable();
     if (view === 'analytics') renderAnalytics();
     if (view === 'playbooks') renderPlaybooks();
+    if (view === 'ai')        renderAI();
     if (view === 'journal')   renderJournal();
     if (view === 'new-trade') { refreshSetupDatalist(); refreshPlaybookSelect(); }
   }
@@ -402,6 +404,67 @@ const APP = (() => {
     renderMonthlyCalendar();
   }
 
+  // ============ AI COACH ============
+  function renderAI() {
+    const hasKey = AI.hasKey();
+    document.getElementById('ai-no-key').classList.toggle('hidden', hasKey);
+    document.getElementById('ai-ready').classList.toggle('hidden', !hasKey);
+    if (!hasKey) return;
+    const closed = STORAGE.getTrades().filter(t => t.status === 'closed').length;
+    document.getElementById('ai-meta').textContent = `Analyzing ${closed} closed trade${closed !== 1 ? 's' : ''} · ${AI.MODEL}`;
+    document.getElementById('ai-error').classList.add('hidden');
+    const out = document.getElementById('ai-output');
+    const last = AI.getLast();
+    if (last && last.text) {
+      out.classList.remove('hidden');
+      out.innerHTML = `<div class="ai-lastrun">Last analysis · ${UTIL.fmtDateTime(last.at)}</div>` + AI.renderMarkdown(last.text);
+    } else {
+      out.classList.add('hidden');
+    }
+  }
+
+  function runAIAnalysis() {
+    const btn = document.getElementById('ai-analyze-btn');
+    const out = document.getElementById('ai-output');
+    const err = document.getElementById('ai-error');
+    err.classList.add('hidden'); err.textContent = '';
+    out.classList.remove('hidden');
+    out.innerHTML = '<div class="ai-thinking"><span></span><span></span><span></span> Analyzing your trades…</div>';
+    btn.disabled = true;
+    const original = '✦ Analyze My Trading';
+    btn.textContent = 'Analyzing…';
+    let started = false;
+    AI.analyze({
+      onDelta: (_delta, full) => {
+        if (!started) { started = true; }
+        out.innerHTML = AI.renderMarkdown(full);
+        out.scrollTop = out.scrollHeight;
+      },
+      onDone: () => { btn.disabled = false; btn.textContent = '✦ Re-analyze'; UTIL.toast('Analysis complete.', 'success'); },
+      onError: (msg) => {
+        btn.disabled = false; btn.textContent = original;
+        out.classList.add('hidden'); out.innerHTML = '';
+        err.classList.remove('hidden'); err.textContent = msg;
+      },
+    });
+  }
+
+  function loadAIKeyField() {
+    const input = document.getElementById('ai-key-input');
+    const status = document.getElementById('ai-key-status');
+    if (!input || !status) return;
+    input.value = '';
+    if (AI.hasKey()) {
+      input.placeholder = '•••••••••••••• (saved)';
+      status.textContent = '✓ Key saved in this browser.';
+      status.className = 'ai-key-status ok';
+    } else {
+      input.placeholder = 'AIza...';
+      status.textContent = 'No key saved yet.';
+      status.className = 'ai-key-status';
+    }
+  }
+
   // ============ THEME ============
   function getTheme() { try { return localStorage.getItem('tj.theme') || 'light'; } catch (e) { return 'light'; } }
   function applyTheme(t) {
@@ -521,6 +584,7 @@ const APP = (() => {
       entryDate: get('entryDate'),
       entryPrice: num('entryPrice'),
       quantity: num('quantity'),
+      multiplier: num('multiplier'),
       stopLoss: num('stopLoss'),
       takeProfit: num('takeProfit'),
       exitDate: get('exitDate'),
@@ -547,6 +611,30 @@ const APP = (() => {
       createdAt: get('id') ? undefined : new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
+  }
+
+  // Auto-detect a futures contract from the symbol and prefill its point value.
+  function applyFuturesAutofill() {
+    const f = document.getElementById('trade-form');
+    const symEl = f.querySelector('[name="symbol"]');
+    const multEl = f.querySelector('[name="multiplier"]');
+    const acEl = f.querySelector('[name="assetClass"]');
+    const hint = document.getElementById('mult-hint');
+    const fm = UTIL.futuresMultiplier(symEl.value);
+    if (fm) {
+      if (!multEl.value || multEl.dataset.auto === '1') {
+        multEl.value = fm.mult;
+        multEl.dataset.auto = '1';
+        if (!acEl.value || acEl.value === 'stock') acEl.value = 'futures';
+      }
+      hint.textContent = `${fm.name} · $${fm.mult}/pt`;
+      hint.classList.add('on');
+    } else {
+      hint.textContent = '';
+      hint.classList.remove('on');
+      if (multEl.dataset.auto === '1') { multEl.value = ''; delete multEl.dataset.auto; }
+    }
+    updateLiveStats();
   }
 
   function updateLiveStats() {
@@ -611,6 +699,8 @@ const APP = (() => {
     f.querySelector('[name="id"]').value = '';
     f.querySelector('[name="entryDate"]').value = UTIL.localDatetimeNow();
     document.getElementById('conf-val').value = 5;
+    const multEl = f.querySelector('[name="multiplier"]'); if (multEl) delete multEl.dataset.auto;
+    const mh = document.getElementById('mult-hint'); if (mh) { mh.textContent = ''; mh.classList.remove('on'); }
     formScreenshots = [];
     renderThumbs();
     renderPlaybookRules();
@@ -639,6 +729,7 @@ const APP = (() => {
     setVal('entryDate', UTIL.isoToLocalDatetime(t.entryDate));
     setVal('entryPrice', t.entryPrice);
     setVal('quantity', t.quantity);
+    setVal('multiplier', t.multiplier);
     setVal('stopLoss', t.stopLoss);
     setVal('takeProfit', t.takeProfit);
     setVal('exitDate', UTIL.isoToLocalDatetime(t.exitDate));
@@ -675,6 +766,7 @@ const APP = (() => {
     });
     updateAdherence();
 
+    applyFuturesAutofill();
     updateLiveStats();
     toggleExitSection();
     UTIL.toast('Editing trade — make changes and save.', 'info');
@@ -798,7 +890,7 @@ const APP = (() => {
       ${detail('Status', `<span class="status-pill ${t.status}">${t.status}</span>`, 'text')}
       ${detail('Net P&L', UTIL.fmtMoney(e.pnl, {alwaysSign:true}), UTIL.pnlClass(e.pnl))}
       ${detail('R-Multiple', e.rMultiple !== null ? UTIL.fmtR(e.rMultiple) : '—', e.rMultiple !== null ? UTIL.pnlClass(e.rMultiple) : '')}
-      ${detail('Entry', `${t.entryPrice} × ${UTIL.fmtNum(t.quantity,0)}`)}
+      ${detail('Entry', `${t.entryPrice} × ${UTIL.fmtNum(t.quantity,0)}` + (UTIL.getMultiplier(t) > 1 ? ` × $${UTIL.getMultiplier(t)}/pt` : ''))}
       ${detail('Exit', t.exitPrice ? `${t.exitPrice}` : '—')}
       ${detail('Entry Date', UTIL.fmtDateTime(t.entryDate))}
       ${detail('Exit Date', t.exitDate ? UTIL.fmtDateTime(t.exitDate) : '—')}
@@ -1009,6 +1101,7 @@ const APP = (() => {
     f.querySelector('[name="currency"]').value = s.currency ?? '$';
     f.querySelector('[name="defaultRiskPct"]').value = s.defaultRiskPct ?? '';
     f.querySelector('[name="tradingStyle"]').value = s.tradingStyle ?? '';
+    loadAIKeyField();
   }
 
   function saveSettings(e) {
@@ -1064,8 +1157,41 @@ const APP = (() => {
     reader.readAsText(file);
   }
 
-  // ---- CSV trade import ----
-  function parseCSV(text) {
+  // ---- CSV trade import (robust: auto delimiter, header detection, fuzzy columns) ----
+  const CSV_FIELD_ALIASES = {
+    symbol:     ['symbol','ticker','instrument','contract','stock','pair','market','security','sym','asset','underlying','name'],
+    quantity:   ['quantity','qty','size','shares','contracts','volume','units','filledqty','filled qty','position size','possize','lots','quantityfilled','qtyfilled','execqty','executedqty','filled'],
+    entryPrice: ['entryprice','entry price','avgentry','average entry price','avg entry','buy price','open price','pricein','price in','avg fill price','avgfillprice','fill price','fillprice','executionprice','exec price','avg price','average price','openprice','entry','cost','price','open'],
+    exitPrice:  ['exitprice','exit price','sell price','close price','priceout','price out','avg exit','average exit price','closeprice','exit','close'],
+    entryDate:  ['entrydate','entry date','entrytime','entry time','opendate','open date','opentime','open time','datetime','date/time','trade date','tradedate','executed','execution time','exectime','filledtime','filled time','opened','placed','timestamp','date','time'],
+    exitDate:   ['exitdate','exit date','exittime','exit time','closedate','close date','closetime','close time','closed'],
+    direction:  ['direction','side','action','b/s','buy/sell','buysell','position','long/short','longshort','l/s','ordertype','order type'],
+    stopLoss:   ['stoploss','stop loss','stop','sl','stop price'],
+    takeProfit: ['takeprofit','take profit','target','tp','limit','limit price'],
+    commission: ['commission','commissions','comm'],
+    fees:       ['fees','fee','slippage'],
+    assetClass: ['assetclass','asset class','asset type','assettype','securitytype','producttype','type','class'],
+    multiplier: ['multiplier','contractmultiplier','contract multiplier','pointvalue','point value','bigpointvalue','contractsize','contract size','pv'],
+    setup:      ['setup','strategy','playbook'],
+    tags:       ['tags','tag','labels','label'],
+    notes:      ['notes','note','comment','comments','memo'],
+    pnl:        ['pnl','p/l','p&l','pl','profit','profit/loss','profitloss','net p/l','netpl','realized p/l','realizedpnl','realized','gross p/l','gain'],
+  };
+
+  function detectDelimiter(text) {
+    const firstLine = (text.split(/\r?\n/).find(l => l.trim() !== '') || '');
+    const cands = [',', ';', '\t', '|'];
+    let best = ',', bestN = 0;
+    for (const d of cands) {
+      const n = firstLine.split(d).length - 1;
+      if (n > bestN) { bestN = n; best = d; }
+    }
+    return best;
+  }
+
+  function parseCSV(text, delim) {
+    text = text.replace(/^﻿/, '');
+    const D = delim || ',';
     const rows = []; let row = [], cur = '', inQ = false;
     for (let i = 0; i < text.length; i++) {
       const ch = text[i], next = text[i + 1];
@@ -1075,7 +1201,7 @@ const APP = (() => {
         else cur += ch;
       } else {
         if (ch === '"') inQ = true;
-        else if (ch === ',') { row.push(cur); cur = ''; }
+        else if (ch === D) { row.push(cur); cur = ''; }
         else if (ch === '\r') { /* skip */ }
         else if (ch === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
         else cur += ch;
@@ -1085,62 +1211,157 @@ const APP = (() => {
     return rows;
   }
 
+  function resolveColumns(cells) {
+    const norm = s => String(s == null ? '' : s).trim().toLowerCase();
+    const comp = s => norm(s).replace(/[^a-z0-9]/g, '');
+    const heads = cells.map((c, i) => ({ i, n: norm(c), c: comp(c) }));
+    const used = new Set(), map = {};
+    // Most specific / required fields first so they claim their columns.
+    const order = ['symbol', 'quantity', 'entryDate', 'exitDate', 'entryPrice', 'exitPrice', 'direction', 'stopLoss', 'takeProfit', 'commission', 'fees', 'assetClass', 'setup', 'tags', 'notes', 'pnl'];
+    for (const field of order) {
+      let best = null, bestScore = 0;
+      for (const h of heads) {
+        if (used.has(h.i) || !h.c) continue;
+        let score = 0;
+        for (const a of CSV_FIELD_ALIASES[field]) {
+          const an = a.toLowerCase(), ac = an.replace(/[^a-z0-9]/g, '');
+          if (h.n === an || h.c === ac) score = Math.max(score, 4);
+          else if (h.c.includes(ac) && ac.length >= 3) score = Math.max(score, 2);
+          else if (ac.includes(h.c) && h.c.length >= 3) score = Math.max(score, 1);
+        }
+        if (score > bestScore) { bestScore = score; best = h; }
+      }
+      if (best) { map[field] = best.i; used.add(best.i); }
+    }
+    return map;
+  }
+
+  function findHeaderRow(rows) {
+    const limit = Math.min(rows.length, 25);
+    for (let i = 0; i < limit; i++) {
+      const m = resolveColumns(rows[i]);
+      if (m.symbol != null && m.entryPrice != null && m.quantity != null) return i;
+    }
+    let bestI = 0, bestC = -1;
+    for (let i = 0; i < limit; i++) {
+      const c = Object.keys(resolveColumns(rows[i])).length;
+      if (c > bestC) { bestC = c; bestI = i; }
+    }
+    return bestI;
+  }
+
+  function makeNum(decimalComma) {
+    return (v) => {
+      if (v == null) return null;
+      let str = String(v).trim();
+      if (!str) return null;
+      let neg = false;
+      if (/^\(.*\)$/.test(str)) { neg = true; str = str.slice(1, -1); }
+      if (decimalComma) str = str.replace(/\./g, '').replace(/,/g, '.');
+      str = str.replace(/[^0-9.\-]/g, '');
+      if (!str || str === '-' || str === '.') return null;
+      const n = Number(str);
+      if (isNaN(n)) return null;
+      return neg ? -Math.abs(n) : n;
+    };
+  }
+
+  function csvDiagnostic(headerCells, delim, map) {
+    const delimName = { ',': 'comma', ';': 'semicolon', '\t': 'tab', '|': 'pipe' }[delim] || delim;
+    const need = [['symbol', 'Symbol'], ['entryPrice', 'Entry price'], ['quantity', 'Quantity']];
+    const missing = need.filter(([f]) => map[f] == null).map(([, l]) => l);
+    const found = headerCells.map(h => String(h).trim()).filter(Boolean);
+    let html = `<p>I couldn't match the required columns in your file, so no trades were imported.</p>`;
+    html += `<div class="trade-detail-section"><h3>What I detected</h3>`;
+    html += `<p><strong>Delimiter:</strong> ${delimName}<br><strong>Column headers:</strong></p>`;
+    html += `<div class="chip-group">${found.length ? found.map(h => `<span class="chip" style="cursor:default">${UTIL.escapeHtml(h)}</span>`).join('') : '<em>none found</em>'}</div></div>`;
+    html += `<div class="trade-detail-section"><h3>Couldn't find</h3><p>A column for: <strong>${missing.join(', ') || '—'}</strong>.</p>
+      <p class="muted" style="font-size:12.5px">The importer needs at least a <strong>symbol</strong>, an <strong>entry price</strong>, and a <strong>quantity</strong> column. Rename those headers in your CSV to match (e.g. <code>symbol</code>, <code>entryPrice</code>, <code>quantity</code>) and re-import, or download the CSV Template for the exact format.</p></div>`;
+    html += `<div class="modal-actions"><button class="btn btn-primary" data-close-modal>Got it</button></div>`;
+    openModal('CSV import — no trades detected', html);
+    document.querySelectorAll('#modal-content [data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
+  }
+
   function importCSV(file) {
     const reader = new FileReader();
     reader.onload = () => {
       try {
-        const rows = parseCSV(reader.result).filter(r => r.length && r.some(c => c.trim() !== ''));
-        if (rows.length < 2) { UTIL.toast('CSV has no data rows.', 'error'); return; }
-        const header = rows[0].map(h => h.trim().toLowerCase());
-        const idx = n => header.indexOf(n);
-        const col = (row, ...names) => { for (const n of names) { const i = idx(n); if (i >= 0 && row[i] !== undefined && row[i].trim() !== '') return row[i].trim(); } return null; };
-        const num = v => { if (v == null) return null; const n = Number(String(v).replace(/[$,]/g, '')); return isNaN(n) ? null : n; };
+        const text = reader.result;
+        const delim = detectDelimiter(text);
+        const decimalComma = delim === ';';
+        const rows = parseCSV(text, delim).filter(r => r.length && r.some(c => String(c).trim() !== ''));
+        if (rows.length < 2) { UTIL.toast('That file has no data rows.', 'error'); return; }
+
+        const hIdx = findHeaderRow(rows);
+        const map = resolveColumns(rows[hIdx]);
+        const num = makeNum(decimalComma);
         const parseDate = d => { if (!d) return null; const dt = new Date(d); return isNaN(dt.getTime()) ? null : dt.toISOString(); };
+        const cell = (row, field) => { const i = map[field]; if (i == null || row[i] == null) return null; const v = String(row[i]).trim(); return v === '' ? null : v; };
 
         const trades = STORAGE.getTrades();
         let added = 0, skipped = 0;
-        for (let r = 1; r < rows.length; r++) {
+        for (let r = hIdx + 1; r < rows.length; r++) {
           const row = rows[r];
-          const symbol = col(row, 'symbol', 'ticker');
-          const entryPrice = num(col(row, 'entryprice', 'entry price', 'entry'));
-          const quantity = num(col(row, 'quantity', 'qty', 'size', 'shares'));
-          const entryDate = parseDate(col(row, 'entrydate', 'entry date', 'date', 'opened'));
+          if (!row.some(c => String(c).trim() !== '')) continue; // blank line
+          const symbol = cell(row, 'symbol');
+          const entryPrice = num(cell(row, 'entryPrice'));
+          let quantity = num(cell(row, 'quantity'));
           if (!symbol || entryPrice == null || quantity == null) { skipped++; continue; }
-          const dir = (col(row, 'direction', 'side', 'type') || 'long').toLowerCase();
-          const direction = (dir.startsWith('s') || dir === 'sell') ? 'short' : 'long';
-          const exitPrice = num(col(row, 'exitprice', 'exit price', 'exit'));
-          const exitDate = parseDate(col(row, 'exitdate', 'exit date', 'closed'));
-          const tags = (col(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
+
+          const dirRaw = (cell(row, 'direction') || '').toLowerCase();
+          let direction = 'long';
+          if (/^s|sell|short|-/.test(dirRaw)) direction = 'short';
+          else if (/^b|buy|long/.test(dirRaw)) direction = 'long';
+          if (quantity < 0) { direction = 'short'; }
+          quantity = Math.abs(quantity);
+
+          const exitPrice = num(cell(row, 'exitPrice'));
+          const entryDate = parseDate(cell(row, 'entryDate'));
+          const exitDate = parseDate(cell(row, 'exitDate'));
+          const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
+
+          // Asset class + futures contract multiplier (point value)
+          let assetClass = (cell(row, 'assetClass') || '').toLowerCase();
+          let multiplier = num(cell(row, 'multiplier'));
+          const fm = UTIL.futuresMultiplier(symbol);
+          if (multiplier == null && fm && !['stock', 'forex', 'crypto', 'options'].includes(assetClass)) {
+            multiplier = fm.mult;
+            if (!assetClass) assetClass = 'futures';
+          }
+          if (!assetClass) assetClass = 'stock';
+
           trades.push({
             id: UTIL.uuid(),
             symbol: symbol.toUpperCase(),
-            assetClass: (col(row, 'assetclass', 'asset') || 'stock').toLowerCase(),
+            assetClass,
+            multiplier,
             direction,
-            status: (exitPrice != null && exitDate) ? 'closed' : 'open',
+            status: exitPrice != null ? 'closed' : 'open',
             entryDate, entryPrice, quantity,
-            stopLoss: num(col(row, 'stoploss', 'stop loss', 'stop')),
-            takeProfit: num(col(row, 'takeprofit', 'take profit', 'target')),
+            stopLoss: num(cell(row, 'stopLoss')),
+            takeProfit: num(cell(row, 'takeProfit')),
             exitDate, exitPrice,
-            commission: num(col(row, 'commission', 'commissions')) || 0,
-            fees: num(col(row, 'fees', 'fee')) || 0,
-            setup: col(row, 'setup', 'strategy'),
-            marketCondition: null,
-            timeframe: col(row, 'timeframe', 'tf'),
+            commission: num(cell(row, 'commission')) || 0,
+            fees: num(cell(row, 'fees')) || 0,
+            setup: cell(row, 'setup'),
+            marketCondition: null, timeframe: null,
             tags,
-            mae: num(col(row, 'mae')), mfe: num(col(row, 'mfe')), mistakes: [],
+            mae: null, mfe: null, mistakes: [],
             emotionBefore: null, emotionDuring: null, confidence: null, planFollowed: null,
-            thesis: null, notes: col(row, 'notes'), lessons: null, screenshots: [],
+            thesis: null, notes: cell(row, 'notes'), lessons: null, screenshots: [],
             playbookId: null, rulesFollowed: [],
             createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
           });
           added++;
         }
+
+        if (added === 0) { csvDiagnostic(rows[hIdx], delim, map); return; }
         STORAGE.saveTrades(trades);
-        UTIL.toast(`Imported ${added} trade${added !== 1 ? 's' : ''}${skipped ? `, skipped ${skipped}` : ''}.`, 'success');
+        UTIL.toast(`Imported ${added} trade${added !== 1 ? 's' : ''}${skipped ? `, skipped ${skipped} row${skipped !== 1 ? 's' : ''}` : ''}.`, 'success');
         navigate('trades');
       } catch (err) {
         console.error(err);
-        UTIL.toast('CSV import failed — check the column format.', 'error');
+        UTIL.toast('CSV import failed: ' + (err.message || err), 'error');
       }
     };
     reader.readAsText(file);
@@ -1224,6 +1445,9 @@ const APP = (() => {
     const form = document.getElementById('trade-form');
     form.addEventListener('submit', saveTrade);
     form.addEventListener('input', updateLiveStats);
+    form.querySelector('[name="symbol"]').addEventListener('input', applyFuturesAutofill);
+    form.querySelector('[name="assetClass"]').addEventListener('change', applyFuturesAutofill);
+    form.querySelector('[name="multiplier"]').addEventListener('input', e => { if (e.target.value) delete e.target.dataset.auto; });
     document.getElementById('form-reset').addEventListener('click', resetTradeForm);
     document.getElementById('trade-status').addEventListener('change', toggleExitSection);
 
@@ -1287,6 +1511,25 @@ const APP = (() => {
     document.getElementById('playbook-form').addEventListener('submit', savePlaybook);
     document.getElementById('playbook-cancel').addEventListener('click', resetPlaybookForm);
     document.getElementById('trade-playbook').addEventListener('change', renderPlaybookRules);
+
+    // AI Coach
+    document.querySelectorAll('[data-action="goto-settings"]').forEach(b => b.addEventListener('click', () => navigate('settings')));
+    document.getElementById('ai-analyze-btn').addEventListener('click', runAIAnalysis);
+    document.getElementById('ai-key-save').addEventListener('click', () => {
+      const input = document.getElementById('ai-key-input');
+      const val = input.value.trim();
+      if (!val) { UTIL.toast('Paste your API key first.', 'error'); return; }
+      if (!/^AIza/.test(val) && !confirm('That doesn\'t look like a Google Gemini key (they usually start with "AIza"). Save it anyway?')) return;
+      AI.saveKey(val);
+      loadAIKeyField();
+      UTIL.toast('API key saved.', 'success');
+    });
+    document.getElementById('ai-key-clear').addEventListener('click', () => {
+      if (!AI.hasKey()) return;
+      AI.saveKey('');
+      loadAIKeyField();
+      UTIL.toast('API key cleared.', 'success');
+    });
 
     // Theme toggle
     applyTheme(getTheme());

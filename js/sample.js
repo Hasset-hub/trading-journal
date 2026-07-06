@@ -81,15 +81,18 @@ const SAMPLE = (() => {
 
       const entryPrice = +(inst.price * randF(0.97, 1.03)).toFixed(inst.price < 10 ? 5 : 2);
 
-      // Risk: stop ~0.8-2% away
-      const riskPct = randF(0.008, 0.02);
+      // Futures point value (multiplier); tighter stops so 1 contract risks a sane amount
+      const mult = inst.asset === 'futures' && UTIL.futuresMultiplier(inst.sym) ? UTIL.futuresMultiplier(inst.sym).mult : 1;
+
+      // Risk: stop ~0.8-2% away (tighter for futures given the large point value)
+      const riskPct = inst.asset === 'futures' ? randF(0.002, 0.005) : randF(0.008, 0.02);
       const stopLoss = +(entryPrice * (1 - dirMult * riskPct)).toFixed(inst.price < 10 ? 5 : 2);
       const rrTarget = randF(1.5, 3.2);
       const takeProfit = +(entryPrice * (1 + dirMult * riskPct * rrTarget)).toFixed(inst.price < 10 ? 5 : 2);
 
-      // Position size: risk ~1% of 25k = $250 risk
+      // Position size: risk ~1% of 25k = $250 risk (÷ point value for futures)
       const riskPerShare = Math.abs(entryPrice - stopLoss);
-      const quantity = Math.max(1, Math.round(250 / riskPerShare / (inst.asset === 'crypto' ? 1000 : 1)) * (inst.asset === 'crypto' ? 0.01 : 1));
+      const quantity = Math.max(1, Math.round(250 / (riskPerShare * mult) / (inst.asset === 'crypto' ? 1000 : 1)) * (inst.asset === 'crypto' ? 0.01 : 1));
 
       const isWin = chance(0.52);
 
@@ -126,6 +129,7 @@ const SAMPLE = (() => {
         id: uuid(),
         symbol: inst.sym,
         assetClass: inst.asset,
+        multiplier: mult,
         direction,
         status: 'closed',
         entryDate: entry.toISOString(),
@@ -165,14 +169,15 @@ const SAMPLE = (() => {
       const entry = new Date(now - randI(0, 3) * 86400000);
       entry.setHours(randI(9, 15), randI(0, 59), 0, 0);
       const entryPrice = +(inst.price * randF(0.99, 1.01)).toFixed(inst.price < 10 ? 5 : 2);
-      const riskPct = randF(0.01, 0.02);
+      const mult = inst.asset === 'futures' && UTIL.futuresMultiplier(inst.sym) ? UTIL.futuresMultiplier(inst.sym).mult : 1;
+      const riskPct = inst.asset === 'futures' ? randF(0.002, 0.005) : randF(0.01, 0.02);
       const stopLoss = +(entryPrice * (1 - dirMult * riskPct)).toFixed(inst.price < 10 ? 5 : 2);
       const takeProfit = +(entryPrice * (1 + dirMult * riskPct * 2.5)).toFixed(inst.price < 10 ? 5 : 2);
       const riskPerShare = Math.abs(entryPrice - stopLoss);
-      const quantity = Math.max(1, Math.round(250 / riskPerShare));
+      const quantity = Math.max(1, Math.round(250 / (riskPerShare * mult)));
       trades.push({
         id: uuid(),
-        symbol: inst.sym, assetClass: inst.asset, direction, status: 'open',
+        symbol: inst.sym, assetClass: inst.asset, multiplier: mult, direction, status: 'open',
         entryDate: entry.toISOString(), entryPrice, quantity, stopLoss, takeProfit,
         exitDate: null, exitPrice: null, commission: 0, fees: 0,
         setup: rand(SETUPS), marketCondition: rand(CONDITIONS), timeframe: rand(TIMEFRAMES),

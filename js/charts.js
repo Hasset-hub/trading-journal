@@ -202,7 +202,8 @@ const CHARTS = (() => {
     if (!ctx) return;
     const points = trades.filter(t => t.status === 'closed' && t.mae && t.mfe && t.entryPrice && t.quantity).map(t => {
       const dir = t.direction === 'short' ? -1 : 1;
-      return { x: Math.abs((t.mae - t.entryPrice) * t.quantity * dir), y: Math.abs((t.mfe - t.entryPrice) * t.quantity * dir), sym: t.symbol, pnl: UTIL.calcPnL(t) };
+      const mult = UTIL.getMultiplier(t);
+      return { x: Math.abs((t.mae - t.entryPrice) * t.quantity * mult * dir), y: Math.abs((t.mfe - t.entryPrice) * t.quantity * mult * dir), sym: t.symbol, pnl: UTIL.calcPnL(t) };
     });
     instances[canvasId] = new Chart(ctx, {
       type: 'scatter',

@@ -2,7 +2,7 @@
 // Network-first: always fetch the freshest files when online (so deploys show up
 // immediately), fall back to cache when offline. Bump CACHE to invalidate old caches.
 
-const CACHE = 'tj-v3';
+const CACHE = 'tj-v6';
 const ASSETS = [
   '/',
   '/index.html',
@@ -15,6 +15,7 @@ const ASSETS = [
   '/js/charts.js',
   '/js/sample.js',
   '/js/chart.umd.js',
+  '/js/ai.js',
   '/js/app.js',
 ];
 

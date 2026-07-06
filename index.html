@@ -47,6 +47,9 @@
         <button class="nav-item" data-view="playbooks">
           <span class="nav-icon">◳</span><span>Playbooks</span>
         </button>
+        <button class="nav-item" data-view="ai">
+          <span class="nav-icon">✦</span><span>AI Coach</span>
+        </button>
 
         <div class="nav-section">Actions</div>
         <button class="nav-item" data-view="new-trade">
@@ -214,6 +217,10 @@
                 <div class="field">
                   <label>Quantity <span class="req">*</span></label>
                   <input type="number" name="quantity" step="any" required placeholder="0" />
+                </div>
+                <div class="field">
+                  <label>Contract Multiplier <span class="mult-hint" id="mult-hint"></span></label>
+                  <input type="number" name="multiplier" step="any" placeholder="1" />
                 </div>
                 <div class="field">
                   <label>Stop Loss</label>
@@ -567,6 +574,35 @@
           <div id="playbooks-list"></div>
         </section>
 
+        <!-- ============== AI COACH ============== -->
+        <section id="view-ai" class="view">
+          <div class="card ai-intro">
+            <div class="ai-intro-icon">✦</div>
+            <div>
+              <h2>AI Trading Coach</h2>
+              <p class="muted">An AI analyst reviews all of your logged trades — win rate, R-multiples, drawdown, setups, timing, and mistakes — and writes an honest performance review with a prioritized action plan. It analyzes your <em>process and discipline</em>, not market predictions.</p>
+            </div>
+          </div>
+
+          <div id="ai-no-key" class="card hidden">
+            <div class="empty-state">
+              <div class="empty-title">Connect a free Google Gemini API key</div>
+              <div class="empty-sub">The AI Coach runs on Google Gemini (<code id="ai-model-name">gemini-2.5-flash</code>) — a <strong>free</strong> API, no credit card needed. Add your key — it's stored only in this browser and sent directly to Google.</div>
+              <button class="btn btn-primary" data-action="goto-settings">Add API key in Settings →</button>
+            </div>
+          </div>
+
+          <div id="ai-ready" class="card hidden">
+            <div class="ai-controls">
+              <button class="btn btn-primary" id="ai-analyze-btn">✦ Analyze My Trading</button>
+              <span class="ai-meta" id="ai-meta"></span>
+            </div>
+            <div id="ai-error" class="ai-error hidden"></div>
+            <div id="ai-output" class="ai-output hidden"></div>
+            <div class="ai-disclaimer">AI-generated analysis for review and education — not financial advice. Each analysis makes one call to Google Gemini's free tier (no cost).</div>
+          </div>
+        </section>
+
         <!-- ============== JOURNAL ============== -->
         <section id="view-journal" class="view">
           <div class="card">
@@ -661,6 +697,25 @@
           </div>
 
           <div class="card">
+            <div class="card-header"><h2>AI Coach</h2></div>
+            <div class="field">
+              <label>Google Gemini API Key <span class="ai-free-badge">free</span></label>
+              <div class="ai-key-row">
+                <input type="password" id="ai-key-input" placeholder="AIza..." autocomplete="off" spellcheck="false" />
+                <button type="button" class="btn btn-primary" id="ai-key-save">Save</button>
+                <button type="button" class="btn btn-ghost" id="ai-key-clear">Clear</button>
+              </div>
+              <span id="ai-key-status" class="ai-key-status"></span>
+            </div>
+            <p class="muted" style="margin-top:10px;font-size:12px;">
+              Powers the <strong>AI Coach</strong> using Google Gemini <code>gemini-2.5-flash</code> — <strong>free</strong>, no credit card.
+              Create a key in ~1 minute at
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>
+              (sign in with a Google account → <em>Create API key</em>). Your key is stored <strong>only in this browser</strong> and sent directly to Google's API — never shared or sent anywhere else.
+            </p>
+          </div>
+
+          <div class="card">
             <div class="card-header"><h2>Data Management</h2></div>
             <div class="settings-actions">
               <button class="btn btn-ghost" id="import-csv">Import Trades (CSV)</button>
@@ -714,6 +769,7 @@
   <script src="js/stats.js"></script>
   <script src="js/charts.js"></script>
   <script src="js/sample.js"></script>
+  <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
   <script>
     // Register the service worker for offline use & installability (HTTPS/localhost only).

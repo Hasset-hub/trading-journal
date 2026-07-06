@@ -22,12 +22,20 @@ Double-click **`index.html`** — it opens in any modern browser (Chrome, Edge, 
 ### Playbooks
 Document each setup as a **playbook** with a rules checklist. Tag trades to a playbook and check off which rules you followed — the journal tracks **per-playbook win rate, net P&L, profit factor, and average rule-adherence**, so you can see which strategies (and how much discipline) actually make money.
 
+### AI Coach
+An AI analyst (Google **Gemini** `gemini-2.5-flash`) reads all of your computed stats — win rate, R-multiples, drawdown, Zella Score, per-setup / symbol / day / hour breakdowns, and logged mistakes — and streams back an honest written **performance review** with strengths, leaks, key patterns, and a prioritized action plan. It reviews your *process and discipline*, not market predictions.
+
+- **Free, bring your own key:** create a free Google Gemini key (no credit card) at [aistudio.google.com/apikey](https://aistudio.google.com/apikey), then paste it in **Settings → AI Coach**. It's stored **only in your browser** and sent directly to Google — never shared. Runs on Gemini's free tier at no cost.
+- Not financial advice — a coaching/education aid for reviewing your own history.
+
 ### Trades & Reports
 - Full **trade log** with search, filtering (status / direction / outcome / setup), and column sorting
 - **Reports** — Sharpe, Sortino, Recovery Factor, Kelly %, R-multiple distribution, win-rate & P&L by setup / symbol / day-of-week / hour, hold-time vs P&L, MFE-vs-MAE efficiency, and a **mistake-cost table**
 
 ### Add Trade
 Live-calculating form: as you type, it computes **P&L, R-multiple, risk:reward, position value, and dollar risk**. Captures MAE/MFE, 12 taggable mistakes, emotions, confidence, plan-adherence, thesis, post-trade analysis, lessons, screenshots, and playbook rule-adherence.
+
+- **Futures-aware:** a **Contract Multiplier (point value)** field feeds every calculation. Type a recognized futures symbol (e.g. `ES`, `MES`, `NQ`, `MNQ`, `CL`, `GC`, `6E`, or month-coded `ESZ25` / `/MESM26`) and it auto-fills the point value (ES = $50, MES = $5, NQ = $20, CL = $1,000, …) and sets the asset class. Stocks/forex/crypto stay at ×1. CSV import auto-detects it too.
 
 ### Daily Journal
 Per-day reflection: market prep & game plan, mental state, sleep, energy, routine adherence, wins/losses, and adjustments for tomorrow.
