@@ -1250,11 +1250,29 @@ const APP = (() => {
     return bestI;
   }
 
+  // Find a single column index in a header row by a list of aliases (exact/compact/contains).
+  function findHeaderCol(cells, aliases) {
+    const heads = cells.map((c, i) => { const n = String(c == null ? '' : c).trim().toLowerCase(); return { i, n, c: n.replace(/[^a-z0-9]/g, '') }; });
+    let best = null, bestScore = 0;
+    for (const h of heads) {
+      if (!h.c) continue;
+      let score = 0;
+      for (const a of aliases) {
+        const an = a.toLowerCase(), ac = an.replace(/[^a-z0-9]/g, '');
+        if (h.n === an || h.c === ac) score = Math.max(score, 4);
+        else if (h.c.includes(ac) && ac.length >= 3) score = Math.max(score, 2);
+      }
+      if (score > bestScore) { bestScore = score; best = h; }
+    }
+    return best ? best.i : null;
+  }
+
   function makeNum(decimalComma) {
     return (v) => {
       if (v == null) return null;
       let str = String(v).trim();
       if (!str) return null;
+      str = str.replace(/^[^\d(.\-]+/, ''); // strip a leading currency symbol, so "$(96.00)" and "$5" both parse
       let neg = false;
       if (/^\(.*\)$/.test(str)) { neg = true; str = str.slice(1, -1); }
       if (decimalComma) str = str.replace(/\./g, '').replace(/,/g, '.');
@@ -1298,48 +1316,81 @@ const APP = (() => {
         const parseDate = d => { if (!d) return null; const dt = new Date(d); return isNaN(dt.getTime()) ? null : dt.toISOString(); };
         const cell = (row, field) => { const i = map[field]; if (i == null || row[i] == null) return null; const v = String(row[i]).trim(); return v === '' ? null : v; };
 
+        // Buy/Sell-fill format (e.g. Tradovate): buyPrice + sellPrice + timestamps, no explicit entry/exit/direction.
+        const buyIdx    = findHeaderCol(rows[hIdx], ['buyprice', 'buy price', 'boughtprice', 'bought price']);
+        const sellIdx   = findHeaderCol(rows[hIdx], ['sellprice', 'sell price', 'soldprice', 'sold price']);
+        const boughtIdx = findHeaderCol(rows[hIdx], ['boughttimestamp', 'bought timestamp', 'bought', 'buytime', 'buy time', 'buydate', 'bought date']);
+        const soldIdx   = findHeaderCol(rows[hIdx], ['soldtimestamp', 'sold timestamp', 'sold', 'selltime', 'sell time', 'solddate', 'sold date']);
+        const pnlIdx    = map.pnl != null ? map.pnl : findHeaderCol(rows[hIdx], ['pnl', 'p/l', 'p&l', 'realizedpnl', 'realized p/l', 'netpnl']);
+        const fillFormat = buyIdx != null && sellIdx != null && (map.entryPrice == null || map.entryPrice === buyIdx);
+        const rawAt = (row, i) => (i != null && row[i] != null) ? String(row[i]).trim() : null;
+
         const trades = STORAGE.getTrades();
         let added = 0, skipped = 0;
         for (let r = hIdx + 1; r < rows.length; r++) {
           const row = rows[r];
           if (!row.some(c => String(c).trim() !== '')) continue; // blank line
+
           const symbol = cell(row, 'symbol');
-          const entryPrice = num(cell(row, 'entryPrice'));
           let quantity = num(cell(row, 'quantity'));
-          if (!symbol || entryPrice == null || quantity == null) { skipped++; continue; }
-
-          const dirRaw = (cell(row, 'direction') || '').toLowerCase();
-          let direction = 'long';
-          if (/^s|sell|short|-/.test(dirRaw)) direction = 'short';
-          else if (/^b|buy|long/.test(dirRaw)) direction = 'long';
-          if (quantity < 0) { direction = 'short'; }
-          quantity = Math.abs(quantity);
-
-          const exitPrice = num(cell(row, 'exitPrice'));
-          const entryDate = parseDate(cell(row, 'entryDate'));
-          const exitDate = parseDate(cell(row, 'exitDate'));
-          const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
-
-          // Asset class + futures contract multiplier (point value)
-          let assetClass = (cell(row, 'assetClass') || '').toLowerCase();
-          let multiplier = num(cell(row, 'multiplier'));
           const fm = UTIL.futuresMultiplier(symbol);
-          if (multiplier == null && fm && !['stock', 'forex', 'crypto', 'options'].includes(assetClass)) {
-            multiplier = fm.mult;
-            if (!assetClass) assetClass = 'futures';
-          }
-          if (!assetClass) assetClass = 'stock';
+          let direction, entryPrice, exitPrice, entryDate, exitDate, stopLoss = null, takeProfit = null;
+          let multiplier = num(cell(row, 'multiplier'));
+          let assetClass = (cell(row, 'assetClass') || '').toLowerCase();
 
+          if (fillFormat) {
+            const buy = num(rawAt(row, buyIdx));
+            const sell = num(rawAt(row, sellIdx));
+            if (!symbol || buy == null || sell == null || quantity == null) { skipped++; continue; }
+            quantity = Math.abs(quantity);
+            const bt = parseDate(rawAt(row, boughtIdx));
+            const st = parseDate(rawAt(row, soldIdx));
+            // Direction is implicit in the timestamps: sold before bought = short.
+            direction = (bt && st && new Date(bt) > new Date(st)) ? 'short' : 'long';
+            entryPrice = direction === 'long' ? buy : sell;   // long: bought first; short: sold first
+            exitPrice  = direction === 'long' ? sell : buy;
+            entryDate  = direction === 'long' ? bt : st;
+            exitDate   = direction === 'long' ? st : bt;
+            // Derive the exact point value from the platform-computed P&L when available.
+            if (multiplier == null) {
+              const pnlVal = num(rawAt(row, pnlIdx));
+              const denom = (sell - buy) * quantity;
+              if (pnlVal != null && denom !== 0) {
+                const d = pnlVal / denom;
+                if (isFinite(d) && d > 0) multiplier = (fm && Math.abs(d - fm.mult) <= fm.mult * 0.02) ? fm.mult : Math.round(d * 1000) / 1000;
+              }
+              if (multiplier == null && fm) multiplier = fm.mult;
+            }
+            if (!assetClass) assetClass = fm ? 'futures' : 'stock';
+          } else {
+            entryPrice = num(cell(row, 'entryPrice'));
+            if (!symbol || entryPrice == null || quantity == null) { skipped++; continue; }
+            const dirRaw = (cell(row, 'direction') || '').toLowerCase();
+            direction = 'long';
+            if (/^s|sell|short|-/.test(dirRaw)) direction = 'short';
+            else if (/^b|buy|long/.test(dirRaw)) direction = 'long';
+            if (quantity < 0) direction = 'short';
+            quantity = Math.abs(quantity);
+            exitPrice = num(cell(row, 'exitPrice'));
+            entryDate = parseDate(cell(row, 'entryDate'));
+            exitDate = parseDate(cell(row, 'exitDate'));
+            stopLoss = num(cell(row, 'stopLoss'));
+            takeProfit = num(cell(row, 'takeProfit'));
+            if (multiplier == null && fm && !['stock', 'forex', 'crypto', 'options'].includes(assetClass)) {
+              multiplier = fm.mult;
+              if (!assetClass) assetClass = 'futures';
+            }
+            if (!assetClass) assetClass = 'stock';
+          }
+
+          const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
           trades.push({
             id: UTIL.uuid(),
             symbol: symbol.toUpperCase(),
-            assetClass,
-            multiplier,
-            direction,
+            assetClass, multiplier, direction,
             status: exitPrice != null ? 'closed' : 'open',
             entryDate, entryPrice, quantity,
-            stopLoss: num(cell(row, 'stopLoss')),
-            takeProfit: num(cell(row, 'takeProfit')),
+            stopLoss, takeProfit,
             exitDate, exitPrice,
             commission: num(cell(row, 'commission')) || 0,
             fees: num(cell(row, 'fees')) || 0,
