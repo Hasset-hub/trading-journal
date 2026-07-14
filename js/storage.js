@@ -14,6 +14,7 @@ const STORAGE = (() => {
     currency: '$',
     defaultRiskPct: 1.0,
     tradingStyle: '',
+    commissionPerContract: 0,
   };
 
   function read(key, fallback) {

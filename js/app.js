@@ -1100,6 +1100,7 @@ const APP = (() => {
     f.querySelector('[name="initialBalance"]').value = s.initialBalance ?? '';
     f.querySelector('[name="currency"]').value = s.currency ?? '$';
     f.querySelector('[name="defaultRiskPct"]').value = s.defaultRiskPct ?? '';
+    f.querySelector('[name="commissionPerContract"]').value = s.commissionPerContract || '';
     f.querySelector('[name="tradingStyle"]').value = s.tradingStyle ?? '';
     loadAIKeyField();
   }
@@ -1112,6 +1113,7 @@ const APP = (() => {
       initialBalance: Number(fd.get('initialBalance')) || 0,
       currency: (fd.get('currency') || '$').slice(0, 3),
       defaultRiskPct: Number(fd.get('defaultRiskPct')) || 0,
+      commissionPerContract: Number(fd.get('commissionPerContract')) || 0,
       tradingStyle: fd.get('tradingStyle') || '',
     });
     UTIL.toast('Settings saved.', 'success');
@@ -1324,6 +1326,7 @@ const APP = (() => {
         const pnlIdx    = map.pnl != null ? map.pnl : findHeaderCol(rows[hIdx], ['pnl', 'p/l', 'p&l', 'realizedpnl', 'realized p/l', 'netpnl']);
         const fillFormat = buyIdx != null && sellIdx != null && (map.entryPrice == null || map.entryPrice === buyIdx);
         const rawAt = (row, i) => (i != null && row[i] != null) ? String(row[i]).trim() : null;
+        const perContract = Number(STORAGE.getSettings().commissionPerContract) || 0;
 
         const trades = STORAGE.getTrades();
         let added = 0, skipped = 0;
@@ -1384,6 +1387,10 @@ const APP = (() => {
           }
 
           const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
+          // Commission: from the CSV if present, else apply the per-contract setting to futures
+          const csvCommission = num(cell(row, 'commission'));
+          const commission = csvCommission != null ? csvCommission
+            : (assetClass === 'futures' && perContract > 0 ? Math.round(perContract * quantity * 100) / 100 : 0);
           trades.push({
             id: UTIL.uuid(),
             symbol: symbol.toUpperCase(),
@@ -1392,7 +1399,7 @@ const APP = (() => {
             entryDate, entryPrice, quantity,
             stopLoss, takeProfit,
             exitDate, exitPrice,
-            commission: num(cell(row, 'commission')) || 0,
+            commission,
             fees: num(cell(row, 'fees')) || 0,
             setup: cell(row, 'setup'),
             marketCondition: null, timeframe: null,
