@@ -180,7 +180,31 @@ const UTIL = (() => {
     return Math.abs(trade.entryPrice - trade.stopLoss) * trade.quantity * getMultiplier(trade);
   }
 
+  // Parse a human duration string like "2h 50min 40sec", "16min 12sec", "12sec",
+  // "1d 3h", "45m", "1:30:00" -> minutes. Returns null if unparseable.
+  function parseDuration(str) {
+    if (str == null) return null;
+    const s = String(str).trim().toLowerCase();
+    if (!s) return null;
+    // clock format hh:mm:ss or mm:ss
+    const clock = s.match(/^(\d+):(\d{1,2})(?::(\d{1,2}))?$/);
+    if (clock) {
+      return clock[3] !== undefined
+        ? (+clock[1]) * 60 + (+clock[2]) + (+clock[3]) / 60
+        : (+clock[1]) + (+clock[2]) / 60;
+    }
+    let total = 0, found = false;
+    const grab = (re, factor) => { const m = s.match(re); if (m) { total += parseFloat(m[1]) * factor; found = true; } };
+    grab(/(\d+(?:\.\d+)?)\s*d(?:ays?)?\b/, 1440);
+    grab(/(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?\b/, 60);
+    grab(/(\d+(?:\.\d+)?)\s*m(?:in(?:utes?)?)?\b/, 1);
+    grab(/(\d+(?:\.\d+)?)\s*s(?:ec(?:onds?)?)?\b/, 1 / 60);
+    return found ? total : null;
+  }
+
   function calcHoldMinutes(trade) {
+    // Prefer an explicit hold time (e.g. imported from a broker's duration column)
+    if (trade.holdMinutes != null && !isNaN(trade.holdMinutes)) return Number(trade.holdMinutes);
     if (!trade.entryDate || !trade.exitDate) return null;
     const e = new Date(trade.entryDate).getTime();
     const x = new Date(trade.exitDate).getTime();
@@ -283,7 +307,7 @@ const UTIL = (() => {
     uuid, getCurrency,
     fmtMoney, fmtMoneyCompact, fmtPct, fmtNum, fmtDate, fmtDateShort, fmtDateTime, fmtHoldTime, fmtR,
     calcPnL, calcPnLPct, calcRMultiple, calcRiskReward, calcPositionValue, calcRiskDollars, calcHoldMinutes,
-    tradeOutcome, enrich, futuresMultiplier, getMultiplier,
+    parseDuration, tradeOutcome, enrich, futuresMultiplier, getMultiplier,
     escapeHtml, pnlClass, downloadFile, toast,
     filterByPeriod, localDatetimeNow, isoToLocalDatetime,
   };

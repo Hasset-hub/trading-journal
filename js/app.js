@@ -1176,6 +1176,7 @@ const APP = (() => {
     multiplier: ['multiplier','contractmultiplier','contract multiplier','pointvalue','point value','bigpointvalue','contractsize','contract size','pv'],
     setup:      ['setup','strategy','playbook'],
     tags:       ['tags','tag','labels','label'],
+    duration:   ['duration','holdtime','hold time','time in trade','timeintrade','holdingperiod','holding period','elapsed','timeheld'],
     notes:      ['notes','note','comment','comments','memo'],
     pnl:        ['pnl','p/l','p&l','pl','profit','profit/loss','profitloss','net p/l','netpl','realized p/l','realizedpnl','realized','gross p/l','gain'],
   };
@@ -1219,7 +1220,7 @@ const APP = (() => {
     const heads = cells.map((c, i) => ({ i, n: norm(c), c: comp(c) }));
     const used = new Set(), map = {};
     // Most specific / required fields first so they claim their columns.
-    const order = ['symbol', 'quantity', 'entryDate', 'exitDate', 'entryPrice', 'exitPrice', 'direction', 'stopLoss', 'takeProfit', 'commission', 'fees', 'assetClass', 'setup', 'tags', 'notes', 'pnl'];
+    const order = ['symbol', 'quantity', 'entryDate', 'exitDate', 'entryPrice', 'exitPrice', 'direction', 'stopLoss', 'takeProfit', 'commission', 'fees', 'assetClass', 'multiplier', 'setup', 'tags', 'duration', 'notes', 'pnl'];
     for (const field of order) {
       let best = null, bestScore = 0;
       for (const h of heads) {
@@ -1387,6 +1388,8 @@ const APP = (() => {
           }
 
           const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
+          // Hold time from a broker "duration" column when present (e.g. "2h 50min 40sec")
+          const holdMinutes = UTIL.parseDuration(cell(row, 'duration'));
           // Commission: from the CSV if present, else apply the per-contract setting to futures
           const csvCommission = num(cell(row, 'commission'));
           const commission = csvCommission != null ? csvCommission
@@ -1398,7 +1401,7 @@ const APP = (() => {
             status: exitPrice != null ? 'closed' : 'open',
             entryDate, entryPrice, quantity,
             stopLoss, takeProfit,
-            exitDate, exitPrice,
+            exitDate, exitPrice, holdMinutes,
             commission,
             fees: num(cell(row, 'fees')) || 0,
             setup: cell(row, 'setup'),
