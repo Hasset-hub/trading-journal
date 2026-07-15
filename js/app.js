@@ -1330,95 +1330,119 @@ const APP = (() => {
         const perContract = Number(STORAGE.getSettings().commissionPerContract) || 0;
 
         const trades = STORAGE.getTrades();
-        let added = 0, skipped = 0;
+        // Fingerprint a trade so re-importing an updated export only adds genuinely new rows.
+        const fingerprint = t => [
+          String(t.symbol || '').toUpperCase(), t.direction || '',
+          t.entryDate || '', t.exitDate || '',
+          t.entryPrice, t.exitPrice, t.quantity,
+        ].join('|');
+        const seen = new Set(trades.map(fingerprint));
+        let added = 0, skipped = 0, dupes = 0, errored = 0;
         for (let r = hIdx + 1; r < rows.length; r++) {
           const row = rows[r];
           if (!row.some(c => String(c).trim() !== '')) continue; // blank line
 
-          const symbol = cell(row, 'symbol');
-          let quantity = num(cell(row, 'quantity'));
-          const fm = UTIL.futuresMultiplier(symbol);
-          let direction, entryPrice, exitPrice, entryDate, exitDate, stopLoss = null, takeProfit = null;
-          let multiplier = num(cell(row, 'multiplier'));
-          let assetClass = (cell(row, 'assetClass') || '').toLowerCase();
+          // Isolate each row: one malformed row must never abort the whole import.
+          try {
+            const symbol = cell(row, 'symbol');
+            let quantity = num(cell(row, 'quantity'));
+            const fm = UTIL.futuresMultiplier(symbol);
+            let direction, entryPrice, exitPrice, entryDate, exitDate, stopLoss = null, takeProfit = null;
+            let multiplier = num(cell(row, 'multiplier'));
+            let assetClass = (cell(row, 'assetClass') || '').toLowerCase();
 
-          if (fillFormat) {
-            const buy = num(rawAt(row, buyIdx));
-            const sell = num(rawAt(row, sellIdx));
-            if (!symbol || buy == null || sell == null || quantity == null) { skipped++; continue; }
-            quantity = Math.abs(quantity);
-            const bt = parseDate(rawAt(row, boughtIdx));
-            const st = parseDate(rawAt(row, soldIdx));
-            // Direction is implicit in the timestamps: sold before bought = short.
-            direction = (bt && st && new Date(bt) > new Date(st)) ? 'short' : 'long';
-            entryPrice = direction === 'long' ? buy : sell;   // long: bought first; short: sold first
-            exitPrice  = direction === 'long' ? sell : buy;
-            entryDate  = direction === 'long' ? bt : st;
-            exitDate   = direction === 'long' ? st : bt;
-            // Derive the exact point value from the platform-computed P&L when available.
-            if (multiplier == null) {
-              const pnlVal = num(rawAt(row, pnlIdx));
-              const denom = (sell - buy) * quantity;
-              if (pnlVal != null && denom !== 0) {
-                const d = pnlVal / denom;
-                if (isFinite(d) && d > 0) multiplier = (fm && Math.abs(d - fm.mult) <= fm.mult * 0.02) ? fm.mult : Math.round(d * 1000) / 1000;
+            if (fillFormat) {
+              const buy = num(rawAt(row, buyIdx));
+              const sell = num(rawAt(row, sellIdx));
+              if (!symbol || buy == null || sell == null || quantity == null) { skipped++; continue; }
+              quantity = Math.abs(quantity);
+              const bt = parseDate(rawAt(row, boughtIdx));
+              const st = parseDate(rawAt(row, soldIdx));
+              // Direction is implicit in the timestamps: sold before bought = short.
+              direction = (bt && st && new Date(bt) > new Date(st)) ? 'short' : 'long';
+              entryPrice = direction === 'long' ? buy : sell;   // long: bought first; short: sold first
+              exitPrice  = direction === 'long' ? sell : buy;
+              entryDate  = direction === 'long' ? bt : st;
+              exitDate   = direction === 'long' ? st : bt;
+              // Derive the exact point value from the platform-computed P&L when available.
+              if (multiplier == null) {
+                const pnlVal = num(rawAt(row, pnlIdx));
+                const denom = (sell - buy) * quantity;
+                if (pnlVal != null && denom !== 0) {
+                  const d = pnlVal / denom;
+                  if (isFinite(d) && d > 0) multiplier = (fm && Math.abs(d - fm.mult) <= fm.mult * 0.02) ? fm.mult : Math.round(d * 1000) / 1000;
+                }
+                if (multiplier == null && fm) multiplier = fm.mult;
               }
-              if (multiplier == null && fm) multiplier = fm.mult;
+              if (!assetClass) assetClass = fm ? 'futures' : 'stock';
+            } else {
+              entryPrice = num(cell(row, 'entryPrice'));
+              if (!symbol || entryPrice == null || quantity == null) { skipped++; continue; }
+              const dirRaw = (cell(row, 'direction') || '').toLowerCase();
+              direction = 'long';
+              if (/^s|sell|short|-/.test(dirRaw)) direction = 'short';
+              else if (/^b|buy|long/.test(dirRaw)) direction = 'long';
+              if (quantity < 0) direction = 'short';
+              quantity = Math.abs(quantity);
+              exitPrice = num(cell(row, 'exitPrice'));
+              entryDate = parseDate(cell(row, 'entryDate'));
+              exitDate = parseDate(cell(row, 'exitDate'));
+              stopLoss = num(cell(row, 'stopLoss'));
+              takeProfit = num(cell(row, 'takeProfit'));
+              if (multiplier == null && fm && !['stock', 'forex', 'crypto', 'options'].includes(assetClass)) {
+                multiplier = fm.mult;
+                if (!assetClass) assetClass = 'futures';
+              }
+              if (!assetClass) assetClass = 'stock';
             }
-            if (!assetClass) assetClass = fm ? 'futures' : 'stock';
-          } else {
-            entryPrice = num(cell(row, 'entryPrice'));
-            if (!symbol || entryPrice == null || quantity == null) { skipped++; continue; }
-            const dirRaw = (cell(row, 'direction') || '').toLowerCase();
-            direction = 'long';
-            if (/^s|sell|short|-/.test(dirRaw)) direction = 'short';
-            else if (/^b|buy|long/.test(dirRaw)) direction = 'long';
-            if (quantity < 0) direction = 'short';
-            quantity = Math.abs(quantity);
-            exitPrice = num(cell(row, 'exitPrice'));
-            entryDate = parseDate(cell(row, 'entryDate'));
-            exitDate = parseDate(cell(row, 'exitDate'));
-            stopLoss = num(cell(row, 'stopLoss'));
-            takeProfit = num(cell(row, 'takeProfit'));
-            if (multiplier == null && fm && !['stock', 'forex', 'crypto', 'options'].includes(assetClass)) {
-              multiplier = fm.mult;
-              if (!assetClass) assetClass = 'futures';
-            }
-            if (!assetClass) assetClass = 'stock';
-          }
 
-          const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
-          // Hold time from a broker "duration" column when present (e.g. "2h 50min 40sec")
-          const holdMinutes = UTIL.parseDuration(cell(row, 'duration'));
-          // Commission: from the CSV if present, else apply the per-contract setting to futures
-          const csvCommission = num(cell(row, 'commission'));
-          const commission = csvCommission != null ? csvCommission
-            : (assetClass === 'futures' && perContract > 0 ? Math.round(perContract * quantity * 100) / 100 : 0);
-          trades.push({
-            id: UTIL.uuid(),
-            symbol: symbol.toUpperCase(),
-            assetClass, multiplier, direction,
-            status: exitPrice != null ? 'closed' : 'open',
-            entryDate, entryPrice, quantity,
-            stopLoss, takeProfit,
-            exitDate, exitPrice, holdMinutes,
-            commission,
-            fees: num(cell(row, 'fees')) || 0,
-            setup: cell(row, 'setup'),
-            marketCondition: null, timeframe: null,
-            tags,
-            mae: null, mfe: null, mistakes: [],
-            emotionBefore: null, emotionDuring: null, confidence: null, planFollowed: null,
-            thesis: null, notes: cell(row, 'notes'), lessons: null, screenshots: [],
-            playbookId: null, rulesFollowed: [],
-            createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-          });
-          added++;
+            const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
+            // Hold time from a broker "duration" column when present (e.g. "2h 50min 40sec")
+            const holdMinutes = UTIL.parseDuration(cell(row, 'duration'));
+            // Commission: from the CSV if present, else apply the per-contract setting to futures
+            const csvCommission = num(cell(row, 'commission'));
+            const commission = csvCommission != null ? csvCommission
+              : (assetClass === 'futures' && perContract > 0 ? Math.round(perContract * quantity * 100) / 100 : 0);
+
+            const trade = {
+              id: UTIL.uuid(),
+              symbol: symbol.toUpperCase(),
+              assetClass, multiplier, direction,
+              status: exitPrice != null ? 'closed' : 'open',
+              entryDate, entryPrice, quantity,
+              stopLoss, takeProfit,
+              exitDate, exitPrice, holdMinutes,
+              commission,
+              fees: num(cell(row, 'fees')) || 0,
+              setup: cell(row, 'setup'),
+              marketCondition: null, timeframe: null,
+              tags,
+              mae: null, mfe: null, mistakes: [],
+              emotionBefore: null, emotionDuring: null, confidence: null, planFollowed: null,
+              thesis: null, notes: cell(row, 'notes'), lessons: null, screenshots: [],
+              playbookId: null, rulesFollowed: [],
+              createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+            };
+
+            const fp = fingerprint(trade);
+            if (seen.has(fp)) { dupes++; continue; }  // already logged from a previous import
+            seen.add(fp);
+            trades.push(trade);
+            added++;
+          } catch (rowErr) {
+            console.warn('Skipping unparseable CSV row', r + 1, rowErr);
+            errored++;
+          }
         }
 
-        if (added === 0) { csvDiagnostic(rows[hIdx], delim, map); return; }
+        // Nothing usable at all (and no duplicates) -> the columns probably didn't map.
+        if (added === 0 && dupes === 0) { csvDiagnostic(rows[hIdx], delim, map); return; }
         STORAGE.saveTrades(trades);
-        UTIL.toast(`Imported ${added} trade${added !== 1 ? 's' : ''}${skipped ? `, skipped ${skipped} row${skipped !== 1 ? 's' : ''}` : ''}.`, 'success');
+        const parts = [`Imported ${added} trade${added !== 1 ? 's' : ''}`];
+        if (dupes)   parts.push(`${dupes} already logged`);
+        if (skipped) parts.push(`${skipped} incomplete row${skipped !== 1 ? 's' : ''} skipped`);
+        if (errored) parts.push(`${errored} bad row${errored !== 1 ? 's' : ''} skipped`);
+        UTIL.toast(parts.join(' · ') + '.', 'success');
         navigate('trades');
       } catch (err) {
         console.error(err);
