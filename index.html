@@ -720,6 +720,22 @@
           </div>
 
           <div class="card">
+            <div class="card-header"><h2>NinjaTrader Auto-Sync</h2></div>
+            <p id="nt-sync-status" class="muted" style="margin:0 0 12px;font-size:13px;">Not connected.</p>
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="nt-connect">Connect NinjaTrader Folder</button>
+              <button class="btn btn-ghost" id="nt-sync" style="display:none">Sync Now</button>
+              <button class="btn btn-ghost" id="nt-setup-guide">Setup Guide</button>
+              <button class="btn btn-danger" id="nt-disconnect" style="display:none">Disconnect</button>
+            </div>
+            <p class="muted" style="margin-top:12px;font-size:12px;">
+              Install the one-time NinjaScript add-on (see <strong>Setup Guide</strong>) and point the journal at the folder it writes to.
+              New trades then import automatically each time you open the journal — no manual CSV needed. Your data never leaves your computer.
+              <span id="nt-sync-unsupported" style="display:none;color:var(--danger)"><br>This browser can’t access folders — use Chrome or Edge on desktop, or import the CSV manually below.</span>
+            </p>
+          </div>
+
+          <div class="card">
             <div class="card-header"><h2>Data Management</h2></div>
             <div class="settings-actions">
               <button class="btn btn-ghost" id="import-csv">Import Trades (CSV)</button>
@@ -776,6 +792,7 @@
   <script src="js/sample.js"></script>
   <script src="js/ai.js"></script>
   <script src="js/app.js"></script>
+  <script src="js/sync.js"></script>
   <script>
     // Register the service worker for offline use & installability (HTTPS/localhost only).
     // Self-updating: when a new deploy is detected, the fresh worker takes over and the

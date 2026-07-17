@@ -212,6 +212,64 @@ const UTIL = (() => {
     return (x - e) / 60000;
   }
 
+  // Pair a stream of raw executions (fills) into round-trip trades.
+  // Each fill: { time (ISO/parseable), symbol, action ('buy'|'sell'), quantity, price, commission }.
+  // A trade spans flat -> position -> flat (scale-ins/scale-outs are averaged). A fill that
+  // flips through zero is split into a close + a new open. Returns trade descriptors:
+  // { symbol, direction, quantity, entryPrice, exitPrice, entryDate, exitDate, commission, status }.
+  function pairFills(fills) {
+    const bySym = {};
+    for (const f of fills) {
+      if (!f || !f.symbol || !f.action || !(f.quantity > 0) || f.price == null || !f.time) continue;
+      (bySym[f.symbol] || (bySym[f.symbol] = [])).push(f);
+    }
+    const round2 = n => Math.round(n * 100) / 100;
+    const trades = [];
+    for (const sym of Object.keys(bySym)) {
+      const list = bySym[sym].slice().sort((a, b) => new Date(a.time) - new Date(b.time));
+      let pos = 0, cycle = null;
+      const startCycle = (side, time) => ({ side, entryQty: 0, entryCost: 0, entryComm: 0, exitQty: 0, exitCost: 0, exitComm: 0, entryTime: time, exitTime: null });
+      const emit = () => {
+        if (!cycle || cycle.entryQty <= 0) { cycle = null; return; }
+        trades.push({
+          symbol: sym,
+          direction: cycle.side > 0 ? 'long' : 'short',
+          quantity: cycle.entryQty,
+          entryPrice: cycle.entryCost / cycle.entryQty,
+          exitPrice: cycle.exitQty > 0 ? cycle.exitCost / cycle.exitQty : null,
+          entryDate: cycle.entryTime,
+          exitDate: cycle.exitTime,
+          commission: round2(cycle.entryComm + cycle.exitComm),
+          status: cycle.exitQty >= cycle.entryQty ? 'closed' : 'open',
+        });
+        cycle = null;
+      };
+      for (const f of list) {
+        const dir = f.action === 'buy' ? 1 : -1;
+        const commUnit = f.quantity ? (f.commission || 0) / f.quantity : 0;
+        let rem = f.quantity;
+        while (rem > 0) {
+          if (pos === 0 && !cycle) cycle = startCycle(dir, f.time);
+          if (pos === 0 || (pos > 0 && dir > 0) || (pos < 0 && dir < 0)) {
+            // opening or scaling into the position
+            cycle.entryQty += rem; cycle.entryCost += rem * f.price; cycle.entryComm += rem * commUnit;
+            pos += dir * rem; rem = 0;
+          } else {
+            // reducing / closing the position
+            const take = Math.min(rem, Math.abs(pos));
+            cycle.exitQty += take; cycle.exitCost += take * f.price; cycle.exitComm += take * commUnit;
+            cycle.exitTime = f.time;
+            pos += dir * take; rem -= take;
+            if (pos === 0) emit();  // back to flat -> trade complete; any remainder opens a new cycle
+          }
+        }
+      }
+      if (cycle) emit();  // still in an open position at the end of the stream
+    }
+    trades.sort((a, b) => new Date(a.entryDate) - new Date(b.entryDate));
+    return trades;
+  }
+
   function tradeOutcome(trade) {
     if (trade.status !== 'closed') return 'open';
     const pnl = calcPnL(trade);
@@ -307,7 +365,7 @@ const UTIL = (() => {
     uuid, getCurrency,
     fmtMoney, fmtMoneyCompact, fmtPct, fmtNum, fmtDate, fmtDateShort, fmtDateTime, fmtHoldTime, fmtR,
     calcPnL, calcPnLPct, calcRMultiple, calcRiskReward, calcPositionValue, calcRiskDollars, calcHoldMinutes,
-    parseDuration, tradeOutcome, enrich, futuresMultiplier, getMultiplier,
+    parseDuration, pairFills, tradeOutcome, enrich, futuresMultiplier, getMultiplier,
     escapeHtml, pnlClass, downloadFile, toast,
     filterByPeriod, localDatetimeNow, isoToLocalDatetime,
   };

@@ -1303,41 +1303,135 @@ const APP = (() => {
     document.querySelectorAll('#modal-content [data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
   }
 
+  // Fingerprint a trade so re-importing an updated export only adds genuinely new rows.
+  function tradeFingerprint(t) {
+    return [
+      String(t.symbol || '').toUpperCase(), t.direction || '',
+      t.entryDate || '', t.exitDate || '',
+      t.entryPrice, t.exitPrice, t.quantity,
+    ].join('|');
+  }
+
+  // Build a full trade record from a core set of fields (defaults for everything else).
+  function newTrade(f) {
+    return {
+      id: UTIL.uuid(),
+      symbol: String(f.symbol || '').toUpperCase(),
+      assetClass: f.assetClass, multiplier: f.multiplier != null ? f.multiplier : null, direction: f.direction,
+      status: f.status || (f.exitPrice != null ? 'closed' : 'open'),
+      entryDate: f.entryDate, entryPrice: f.entryPrice, quantity: f.quantity,
+      stopLoss: f.stopLoss != null ? f.stopLoss : null, takeProfit: f.takeProfit != null ? f.takeProfit : null,
+      exitDate: f.exitDate != null ? f.exitDate : null, exitPrice: f.exitPrice != null ? f.exitPrice : null,
+      holdMinutes: f.holdMinutes != null ? f.holdMinutes : null,
+      commission: f.commission || 0,
+      fees: f.fees || 0,
+      setup: f.setup != null ? f.setup : null,
+      marketCondition: null, timeframe: null,
+      tags: f.tags || [],
+      mae: null, mfe: null, mistakes: [],
+      emotionBefore: null, emotionDuring: null, confidence: null, planFollowed: null,
+      thesis: null, notes: f.notes != null ? f.notes : null, lessons: null, screenshots: [],
+      playbookId: null, rulesFollowed: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+  }
+
+  // Raw-execution (fill) format, e.g. the NinjaTrader add-on: one row per fill, paired into
+  // round-trip trades by UTIL.pairFills. Returns { incoming, skipped }.
+  function parseExecutionRows(rows, hIdx, num, parseDate) {
+    const H = rows[hIdx];
+    const at = (row, i) => (i != null && row[i] != null) ? (String(row[i]).trim() || null) : null;
+    const idIdx    = findHeaderCol(H, ['executionid', 'execid', 'exec id', 'fillid', 'fill id']);
+    const timeIdx  = findHeaderCol(H, ['time', 'datetime', 'date/time', 'timestamp', 'executed', 'exectime', 'fill time', 'date']);
+    const symIdx   = findHeaderCol(H, ['symbol', 'instrument', 'masterinstrument', 'master instrument', 'ticker', 'contract']);
+    const actIdx   = findHeaderCol(H, ['action', 'side', 'buy/sell', 'b/s', 'orderaction', 'order action']);
+    const qtyIdx   = findHeaderCol(H, ['quantity', 'qty', 'size', 'contracts', 'filled', 'filledqty', 'filled qty']);
+    const priceIdx = findHeaderCol(H, ['price', 'fillprice', 'fill price', 'avgprice', 'avg price', 'executionprice']);
+    const commIdx  = findHeaderCol(H, ['commission', 'commissions', 'comm']);
+    const fills = [];
+    const seenIds = new Set();
+    let skipped = 0;
+    for (let r = hIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (!row.some(c => String(c).trim() !== '')) continue;
+      const execId = at(row, idIdx);
+      if (execId && seenIds.has(execId)) continue;   // duplicate fill line -> ignore (protects position math)
+      const rawAct = (at(row, actIdx) || '').toLowerCase();
+      const side = /buy|bought|cover|long/.test(rawAct) ? 'buy'
+                 : /sell|sold|short/.test(rawAct) ? 'sell'
+                 : (rawAct === 'b' ? 'buy' : rawAct === 's' ? 'sell' : null);
+      const qty = Math.abs(num(at(row, qtyIdx)) || 0);
+      const price = num(at(row, priceIdx));
+      const time = parseDate(at(row, timeIdx));
+      const symbol = (at(row, symIdx) || '').toUpperCase();
+      if (!symbol || !side || !qty || price == null || !time) { skipped++; continue; }
+      if (execId) seenIds.add(execId);
+      fills.push({ time, symbol, action: side, quantity: qty, price, commission: num(at(row, commIdx)) || 0 });
+    }
+    const incoming = UTIL.pairFills(fills).map(p => {
+      const fm = UTIL.futuresMultiplier(p.symbol);
+      return newTrade({
+        symbol: p.symbol,
+        assetClass: fm ? 'futures' : 'stock',
+        multiplier: fm ? fm.mult : null,
+        direction: p.direction, status: p.status,
+        entryDate: p.entryDate, entryPrice: p.entryPrice, quantity: p.quantity,
+        exitDate: p.exitDate, exitPrice: p.exitPrice,
+        commission: p.commission,
+      });
+    });
+    return { incoming, skipped };
+  }
+
   function importCSV(file) {
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        const text = reader.result;
-        const delim = detectDelimiter(text);
-        const decimalComma = delim === ';';
-        const rows = parseCSV(text, delim).filter(r => r.length && r.some(c => String(c).trim() !== ''));
-        if (rows.length < 2) { UTIL.toast('That file has no data rows.', 'error'); return; }
+      const res = ingestCSV(reader.result, { source: 'file' });
+      if (res && (res.added || res.dupes)) navigate('trades');
+    };
+    reader.readAsText(file);
+  }
 
-        const hIdx = findHeaderRow(rows);
-        const map = resolveColumns(rows[hIdx]);
-        const num = makeNum(decimalComma);
-        const parseDate = d => { if (!d) return null; const dt = new Date(d); return isNaN(dt.getTime()) ? null : dt.toISOString(); };
-        const cell = (row, field) => { const i = map[field]; if (i == null || row[i] == null) return null; const v = String(row[i]).trim(); return v === '' ? null : v; };
+  // Parse CSV text into trades and merge them (de-duplicated) into storage.
+  // opts.source: 'file' (toast + diagnostic modal) or 'silent' (return summary only, no UI).
+  // Returns { added, dupes, skipped, errored } or null when nothing could be parsed.
+  function ingestCSV(text, opts) {
+    opts = opts || {};
+    const loud = opts.source !== 'silent';
+    try {
+      const delim = detectDelimiter(text);
+      const decimalComma = delim === ';';
+      const rows = parseCSV(text, delim).filter(r => r.length && r.some(c => String(c).trim() !== ''));
+      if (rows.length < 2) { if (loud) UTIL.toast('That file has no data rows.', 'error'); return null; }
 
-        // Buy/Sell-fill format (e.g. Tradovate): buyPrice + sellPrice + timestamps, no explicit entry/exit/direction.
-        const buyIdx    = findHeaderCol(rows[hIdx], ['buyprice', 'buy price', 'boughtprice', 'bought price']);
-        const sellIdx   = findHeaderCol(rows[hIdx], ['sellprice', 'sell price', 'soldprice', 'sold price']);
-        const boughtIdx = findHeaderCol(rows[hIdx], ['boughttimestamp', 'bought timestamp', 'bought', 'buytime', 'buy time', 'buydate', 'bought date']);
-        const soldIdx   = findHeaderCol(rows[hIdx], ['soldtimestamp', 'sold timestamp', 'sold', 'selltime', 'sell time', 'solddate', 'sold date']);
-        const pnlIdx    = map.pnl != null ? map.pnl : findHeaderCol(rows[hIdx], ['pnl', 'p/l', 'p&l', 'realizedpnl', 'realized p/l', 'netpnl']);
-        const fillFormat = buyIdx != null && sellIdx != null && (map.entryPrice == null || map.entryPrice === buyIdx);
-        const rawAt = (row, i) => (i != null && row[i] != null) ? String(row[i]).trim() : null;
-        const perContract = Number(STORAGE.getSettings().commissionPerContract) || 0;
+      const hIdx = findHeaderRow(rows);
+      const map = resolveColumns(rows[hIdx]);
+      const num = makeNum(decimalComma);
+      const parseDate = d => { if (!d) return null; const dt = new Date(d); return isNaN(dt.getTime()) ? null : dt.toISOString(); };
+      const cell = (row, field) => { const i = map[field]; if (i == null || row[i] == null) return null; const v = String(row[i]).trim(); return v === '' ? null : v; };
 
-        const trades = STORAGE.getTrades();
-        // Fingerprint a trade so re-importing an updated export only adds genuinely new rows.
-        const fingerprint = t => [
-          String(t.symbol || '').toUpperCase(), t.direction || '',
-          t.entryDate || '', t.exitDate || '',
-          t.entryPrice, t.exitPrice, t.quantity,
-        ].join('|');
-        const seen = new Set(trades.map(fingerprint));
-        let added = 0, skipped = 0, dupes = 0, errored = 0;
+      // Buy/Sell-fill format (e.g. Tradovate): buyPrice + sellPrice + timestamps, no explicit entry/exit/direction.
+      const buyIdx    = findHeaderCol(rows[hIdx], ['buyprice', 'buy price', 'boughtprice', 'bought price']);
+      const sellIdx   = findHeaderCol(rows[hIdx], ['sellprice', 'sell price', 'soldprice', 'sold price']);
+      const boughtIdx = findHeaderCol(rows[hIdx], ['boughttimestamp', 'bought timestamp', 'bought', 'buytime', 'buy time', 'buydate', 'bought date']);
+      const soldIdx   = findHeaderCol(rows[hIdx], ['soldtimestamp', 'sold timestamp', 'sold', 'selltime', 'sell time', 'solddate', 'sold date']);
+      const pnlIdx    = map.pnl != null ? map.pnl : findHeaderCol(rows[hIdx], ['pnl', 'p/l', 'p&l', 'realizedpnl', 'realized p/l', 'netpnl']);
+      const fillFormat = buyIdx != null && sellIdx != null && (map.entryPrice == null || map.entryPrice === buyIdx);
+      // Raw-execution format (NinjaTrader add-on): one row per fill, keyed by an executionId column.
+      const execIdIdx = findHeaderCol(rows[hIdx], ['executionid', 'execid', 'exec id', 'fillid', 'fill id']);
+      const actionColIdx = findHeaderCol(rows[hIdx], ['action', 'side', 'buy/sell', 'b/s', 'orderaction', 'order action']);
+      const execFormat = !fillFormat && execIdIdx != null && actionColIdx != null;
+      const rawAt = (row, i) => (i != null && row[i] != null) ? String(row[i]).trim() : null;
+      const perContract = Number(STORAGE.getSettings().commissionPerContract) || 0;
+
+      const incoming = [];
+      let skipped = 0, errored = 0;
+
+      if (execFormat) {
+        const r = parseExecutionRows(rows, hIdx, num, parseDate);
+        incoming.push(...r.incoming);
+        skipped = r.skipped;
+      } else {
         for (let r = hIdx + 1; r < rows.length; r++) {
           const row = rows[r];
           if (!row.some(c => String(c).trim() !== '')) continue; // blank line
@@ -1404,52 +1498,49 @@ const APP = (() => {
             const commission = csvCommission != null ? csvCommission
               : (assetClass === 'futures' && perContract > 0 ? Math.round(perContract * quantity * 100) / 100 : 0);
 
-            const trade = {
-              id: UTIL.uuid(),
-              symbol: symbol.toUpperCase(),
-              assetClass, multiplier, direction,
+            incoming.push(newTrade({
+              symbol, assetClass, multiplier, direction,
               status: exitPrice != null ? 'closed' : 'open',
-              entryDate, entryPrice, quantity,
-              stopLoss, takeProfit,
-              exitDate, exitPrice, holdMinutes,
-              commission,
+              entryDate, entryPrice, quantity, stopLoss, takeProfit,
+              exitDate, exitPrice, holdMinutes, commission,
               fees: num(cell(row, 'fees')) || 0,
-              setup: cell(row, 'setup'),
-              marketCondition: null, timeframe: null,
-              tags,
-              mae: null, mfe: null, mistakes: [],
-              emotionBefore: null, emotionDuring: null, confidence: null, planFollowed: null,
-              thesis: null, notes: cell(row, 'notes'), lessons: null, screenshots: [],
-              playbookId: null, rulesFollowed: [],
-              createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-            };
-
-            const fp = fingerprint(trade);
-            if (seen.has(fp)) { dupes++; continue; }  // already logged from a previous import
-            seen.add(fp);
-            trades.push(trade);
-            added++;
+              setup: cell(row, 'setup'), tags, notes: cell(row, 'notes'),
+            }));
           } catch (rowErr) {
             console.warn('Skipping unparseable CSV row', r + 1, rowErr);
             errored++;
           }
         }
+      }
 
-        // Nothing usable at all (and no duplicates) -> the columns probably didn't map.
-        if (added === 0 && dupes === 0) { csvDiagnostic(rows[hIdx], delim, map); return; }
-        STORAGE.saveTrades(trades);
+      // Merge into storage, de-duplicated against what's already there.
+      const trades = STORAGE.getTrades();
+      const seen = new Set(trades.map(tradeFingerprint));
+      let added = 0, dupes = 0;
+      for (const t of incoming) {
+        const fp = tradeFingerprint(t);
+        if (seen.has(fp)) { dupes++; continue; }
+        seen.add(fp);
+        trades.push(t);
+        added++;
+      }
+
+      // Nothing usable at all (and no duplicates) -> the columns probably didn't map.
+      if (added === 0 && dupes === 0) { if (loud) csvDiagnostic(rows[hIdx], delim, map); return null; }
+      STORAGE.saveTrades(trades);
+      if (loud) {
         const parts = [`Imported ${added} trade${added !== 1 ? 's' : ''}`];
         if (dupes)   parts.push(`${dupes} already logged`);
         if (skipped) parts.push(`${skipped} incomplete row${skipped !== 1 ? 's' : ''} skipped`);
         if (errored) parts.push(`${errored} bad row${errored !== 1 ? 's' : ''} skipped`);
         UTIL.toast(parts.join(' · ') + '.', 'success');
-        navigate('trades');
-      } catch (err) {
-        console.error(err);
-        UTIL.toast('CSV import failed: ' + (err.message || err), 'error');
       }
-    };
-    reader.readAsText(file);
+      return { added, dupes, skipped, errored };
+    } catch (err) {
+      console.error(err);
+      if (loud) UTIL.toast('CSV import failed: ' + (err.message || err), 'error');
+      return null;
+    }
   }
 
   function downloadCSVTemplate() {
@@ -1713,7 +1804,7 @@ const APP = (() => {
     navigate('dashboard');
   }
 
-  return { init, navigate };
+  return { init, navigate, ingestCSV, openModal, closeModal, refresh: () => navigate(state.view) };
 })();
 
 document.addEventListener('DOMContentLoaded', APP.init);
