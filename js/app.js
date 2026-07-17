@@ -154,19 +154,19 @@ const APP = (() => {
     const ins = STATS.insights(trades);
     if (!ins) { el.innerHTML = ''; return; }
     const cards = [];
-    if (ins.best) cards.push(insightCard('▲', 'Best Trade',
+    if (ins.best) cards.push(insightCard(ICON('trend-up'), 'Best Trade',
       `<span class="profit">${UTIL.fmtMoney(ins.best.pnl, {alwaysSign:true})}</span>`,
       `${UTIL.escapeHtml(ins.best.symbol)} · ${ins.best.rMultiple !== null ? UTIL.fmtR(ins.best.rMultiple) : '—'}`, 'profit'));
-    if (ins.worst) cards.push(insightCard('▼', 'Worst Trade',
+    if (ins.worst) cards.push(insightCard(ICON('trend-down'), 'Worst Trade',
       `<span class="loss">${UTIL.fmtMoney(ins.worst.pnl, {alwaysSign:true})}</span>`,
       `${UTIL.escapeHtml(ins.worst.symbol)} · ${ins.worst.rMultiple !== null ? UTIL.fmtR(ins.worst.rMultiple) : '—'}`, 'loss'));
-    if (ins.bestSetup) cards.push(insightCard('★', 'Top Setup',
+    if (ins.bestSetup) cards.push(insightCard(ICON('star'), 'Top Setup',
       UTIL.escapeHtml(ins.bestSetup.key),
       `${UTIL.fmtMoney(ins.bestSetup.netPnl, {alwaysSign:true})} · ${UTIL.fmtPct(ins.bestSetup.winRate, 0)} win`, 'accent'));
-    if (ins.worstMistake) cards.push(insightCard('!', 'Biggest Leak',
+    if (ins.worstMistake) cards.push(insightCard(ICON('alert'), 'Biggest Leak',
       MISTAKE_LABELS[ins.worstMistake.key] || ins.worstMistake.key,
       `${UTIL.fmtMoney(ins.worstMistake.netPnl)} over ${ins.worstMistake.count}×`, 'loss'));
-    else if (ins.bestDay) cards.push(insightCard('◆', 'Best Day',
+    else if (ins.bestDay) cards.push(insightCard(ICON('calendar'), 'Best Day',
       `<span class="profit">${UTIL.fmtMoney(ins.bestDay.netPnl, {alwaysSign:true})}</span>`,
       UTIL.fmtDate(ins.bestDay.key), 'profit'));
     el.innerHTML = cards.join('');
@@ -232,7 +232,7 @@ const APP = (() => {
             <div class="playbook-market">${UTIL.escapeHtml(pb.market || '—')}</div>
           </div>
           <div class="playbook-actions">
-            <button class="btn-icon" data-pb-edit="${pb.id}" title="Edit">✎</button>
+            <button class="btn-icon" data-pb-edit="${pb.id}" title="Edit">${ICON('edit')}</button>
             <button class="btn-icon" data-pb-del="${pb.id}" title="Delete">🗑</button>
           </div>
         </div>
@@ -431,7 +431,7 @@ const APP = (() => {
     out.classList.remove('hidden');
     out.innerHTML = '<div class="ai-thinking"><span></span><span></span><span></span> Analyzing your trades…</div>';
     btn.disabled = true;
-    const original = '✦ Analyze My Trading';
+    const original = ICON('ai') + ' Analyze My Trading';
     btn.textContent = 'Analyzing…';
     let started = false;
     AI.analyze({
@@ -440,9 +440,9 @@ const APP = (() => {
         out.innerHTML = AI.renderMarkdown(full);
         out.scrollTop = out.scrollHeight;
       },
-      onDone: () => { btn.disabled = false; btn.textContent = '✦ Re-analyze'; UTIL.toast('Analysis complete.', 'success'); },
+      onDone: () => { btn.disabled = false; btn.innerHTML = ICON('ai') + ' Re-analyze'; UTIL.toast('Analysis complete.', 'success'); },
       onError: (msg) => {
-        btn.disabled = false; btn.textContent = original;
+        btn.disabled = false; btn.innerHTML = original;
         out.classList.add('hidden'); out.innerHTML = '';
         err.classList.remove('hidden'); err.textContent = msg;
       },
@@ -832,7 +832,7 @@ const APP = (() => {
         <td class="mono ${t.rMultiple !== null ? UTIL.pnlClass(t.rMultiple) : ''}">${t.rMultiple !== null ? UTIL.fmtR(t.rMultiple) : '—'}</td>
         <td class="mono">${t.holdMinutes !== null ? UTIL.fmtHoldTime(t.holdMinutes) : '—'}</td>
         <td><span class="status-pill ${t.status}">${t.status}</span></td>
-        <td><button class="btn-icon" data-edit="${t.id}" title="Edit">✎</button></td>
+        <td><button class="btn-icon" data-edit="${t.id}" title="Edit">${ICON('edit')}</button></td>
       </tr>
     `).join('');
 

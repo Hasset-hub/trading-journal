@@ -8,6 +8,7 @@
   const isMac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
   const $ = (s, r = document) => r.querySelector(s);
   const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const ic = (n) => (window.ICON ? window.ICON(n) : '');
 
   /* ---------------------------------------------------------- count-up */
   function countUp(el) {
@@ -57,6 +58,19 @@
   /* ---------------------------------------------------------- trade-row stagger */
   function indexRows(tb) { $$('tr', tb).forEach((tr, i) => tr.style.setProperty('--row-i', Math.min(i, 12))); }
 
+  /* ---------------------------------------------------------- filled range sliders */
+  function fillRange(el) {
+    const min = +el.min || 0, max = +el.max || 100, v = +el.value;
+    const p = max > min ? ((v - min) / (max - min)) * 100 : 50;
+    el.style.setProperty('--rng', p.toFixed(1) + '%');
+  }
+  function fillAllRanges() { $$('input[type="range"]').forEach(fillRange); }
+  document.addEventListener('input', (e) => { if (e.target && e.target.type === 'range') fillRange(e.target); });
+  // re-sync fills after view changes / when the edit form is populated programmatically
+  document.addEventListener('click', (e) => {
+    if (e.target.closest('.nav-item, [data-edit], [data-pb-edit], [data-action], #journal-date')) setTimeout(fillAllRanges, 70);
+  });
+
   /* ---------------------------------------------------------- ripple */
   document.addEventListener('pointerdown', (e) => {
     if (reduce) return;
@@ -81,20 +95,20 @@
     const nav = (view, label, ico) => ({ group: 'Navigate', ico, label, run: () => clickNav(view) });
     const act = (sel, label, ico) => ({ group: 'Actions', ico, label, run: () => { const el = $(sel); if (el) el.click(); } });
     return [
-      nav('dashboard', 'Dashboard', '▦'),
-      nav('trades', 'Trades', '≣'),
-      nav('analytics', 'Reports', '◔'),
-      nav('journal', 'Daily Journal', '✎'),
-      nav('playbooks', 'Playbooks', '◳'),
-      nav('ai', 'AI Coach', '✦'),
-      nav('new-trade', 'Add Trade', '＋'),
-      nav('settings', 'Settings', '⚙'),
-      { group: 'Actions', ico: '◑', label: 'Toggle light / dark theme', run: () => { const t = $('#theme-toggle'); if (t) t.click(); } },
-      act('#import-csv', 'Import trades (CSV)', '⇪'),
-      act('#nt-connect', 'Connect / sync NinjaTrader', '⇄'),
-      act('#export-json', 'Export all data (JSON)', '⭳'),
-      act('#download-template', 'Download CSV template', '▤'),
-      act('#load-sample', 'Load sample data', '✧'),
+      nav('dashboard', 'Dashboard', ic('dashboard')),
+      nav('trades', 'Trades', ic('trades')),
+      nav('analytics', 'Reports', ic('reports')),
+      nav('journal', 'Daily Journal', ic('journal')),
+      nav('playbooks', 'Playbooks', ic('playbooks')),
+      nav('ai', 'AI Coach', ic('ai')),
+      nav('new-trade', 'Add Trade', ic('add')),
+      nav('settings', 'Settings', ic('settings')),
+      { group: 'Actions', ico: ic('sun'), label: 'Toggle light / dark theme', run: () => { const t = $('#theme-toggle'); if (t) t.click(); } },
+      act('#import-csv', 'Import trades (CSV)', ic('upload')),
+      act('#nt-connect', 'Connect / sync NinjaTrader', ic('sync')),
+      act('#export-json', 'Export all data (JSON)', ic('download')),
+      act('#download-template', 'Download CSV template', ic('file')),
+      act('#load-sample', 'Load sample data', ic('star')),
     ];
   };
   function clickNav(view) { const b = $(`.nav-item[data-view="${view}"]`); if (b) b.click(); }
@@ -106,7 +120,7 @@
     pal.innerHTML = `
       <div class="cmdk" role="dialog" aria-label="Command palette">
         <div class="cmdk-input-wrap">
-          <span class="cmdk-search">⌕</span>
+          <span class="cmdk-search">${ic('search')}</span>
           <input class="cmdk-input" type="text" placeholder="Search actions, pages…" aria-label="Search" />
           <span class="kbd-hint"><span class="kbd">esc</span></span>
         </div>
@@ -189,6 +203,7 @@
     watch('dashboard-stats', animateStats);
     watch('dashboard-insights', animateStats);
     watch('trades-tbody', indexRows);
+    fillAllRanges();
     buildPalette();
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

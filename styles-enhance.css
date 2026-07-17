@@ -252,6 +252,98 @@ html[data-theme="dark"] .topbar { background: color-mix(in srgb, var(--surface) 
 .toast { animation: toastIn 0.42s var(--ease-spring) both; }
 @keyframes toastIn { from { opacity: 0; transform: translateY(14px) scale(0.96); } to { opacity: 1; transform: none; } }
 
+/* ============================================================ ICON SYSTEM */
+.ic {
+  width: 18px; height: 18px; flex: none; display: inline-block;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+  vertical-align: -0.18em;
+}
+.nav-icon { width: 22px; height: 22px; font-size: 0; }
+.nav-icon .ic { width: 20px; height: 20px; }
+.theme-toggle .icon-sun, .theme-toggle .icon-moon { display: grid; place-items: center; }
+.theme-toggle .icon-sun { display: none; }
+html[data-theme="dark"] .theme-toggle .icon-sun { display: grid; }
+html[data-theme="dark"] .theme-toggle .icon-moon { display: none; }
+.theme-toggle .ic { width: 18px; height: 18px; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.btn .ic { width: 16px; height: 16px; }
+.btn-icon .ic { width: 16px; height: 16px; }
+.btn-icon:hover .ic { transform: scale(1.12); }
+.toggle .ic { width: 15px; height: 15px; }
+.cmdk-ico .ic { width: 16px; height: 16px; }
+.cmdk-search { display: grid; place-items: center; color: var(--text-3); }
+.cmdk-search .ic { width: 18px; height: 18px; }
+.insight-icon .ic { width: 19px; height: 19px; stroke-width: 2.2; }
+.image-drop-icon { display: grid; place-items: center; }
+.image-drop-icon .ic { width: 26px; height: 26px; }
+.ai-intro-icon { display: grid; place-items: center; }
+.ai-intro-icon .ic { width: 30px; height: 30px; }
+
+/* ============================================================ FORM CONTROLS */
+input[type="text"], input[type="number"], input[type="date"], input[type="datetime-local"],
+input[type="search"], select, textarea {
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+input[type="text"]:focus, input[type="number"]:focus, input[type="date"]:focus,
+input[type="datetime-local"]:focus, input[type="search"]:focus, select:focus, textarea:focus {
+  outline: none; border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-ring);
+}
+input:hover:not(:focus), select:hover:not(:focus), textarea:hover:not(:focus) { border-color: var(--line-2); }
+
+/* custom select caret (longhands forced with !important so the .select-sm/.field
+   `background: var(--surface)` shorthand can't reset repeat/size/position and tile the caret) */
+select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  background-size: 16px !important;
+  padding-right: 38px !important;
+}
+html[data-theme="dark"] select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239a9cab' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important;
+}
+
+/* segmented direction toggle */
+.toggle { display: inline-flex; align-items: center; justify-content: center; gap: 6px; transition: transform 0.15s var(--ease-out), background 0.18s, color 0.18s, box-shadow 0.18s; }
+.toggle:hover { color: var(--text); }
+.toggle-group input:checked + .toggle { box-shadow: var(--shadow-sm); transform: translateY(-1px); }
+.toggle-group input:checked + .toggle .ic { transform: scale(1.1); }
+
+/* checkbox chips get a premium selected state */
+.chip { transition: background 0.16s, border-color 0.16s, color 0.16s, transform 0.14s var(--ease-out); }
+.chip:hover { transform: translateY(-1px); }
+.chip:has(input:checked) { box-shadow: inset 0 0 0 1px var(--warn); }
+
+/* filled range sliders (fill % set by interactions.js via --rng) */
+input[type="range"]::-webkit-slider-runnable-track {
+  background: linear-gradient(90deg, var(--primary) var(--rng, 50%), var(--surface-3) var(--rng, 50%));
+}
+input[type="range"]::-moz-range-progress { background: var(--primary); height: 5px; border-radius: 3px; }
+input[type="range"]::-webkit-slider-thumb { transition: transform 0.15s var(--ease-spring), box-shadow 0.15s; }
+input[type="range"]:hover::-webkit-slider-thumb { transform: scale(1.18); }
+input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.28); box-shadow: 0 0 0 6px var(--primary-ring); }
+
+/* live P&L strip: accent + hover reveal */
+.live-stats { position: relative; overflow: hidden; }
+.live-stats::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: linear-gradient(var(--primary), var(--profit)); }
+.live-stat strong { transition: color 0.2s; }
+
+/* trade-entry section cards lift subtly */
+.form-section { transition: box-shadow 0.28s var(--ease-out), border-color 0.28s; }
+.form-section:hover { box-shadow: var(--shadow); border-color: var(--line-2); }
+.section-title { font-family: var(--display); letter-spacing: -0.01em; }
+
+/* image drop zone */
+.image-drop { transition: border-color 0.2s, background 0.2s, transform 0.2s var(--ease-out); }
+.image-drop:hover .image-drop-icon .ic { transform: translateY(-2px); }
+.image-drop-icon .ic { transition: transform 0.25s var(--ease-spring); }
+
+/* form action buttons full-width feel on mobile */
+@media (max-width: 560px) { .form-actions { flex-direction: column-reverse; } .form-actions .btn { width: 100%; } }
+
 /* ============================================================ REDUCED MOTION */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
