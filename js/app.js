@@ -1332,13 +1332,19 @@ const APP = (() => {
       emotionBefore: null, emotionDuring: null, confidence: null, planFollowed: null,
       thesis: null, notes: f.notes != null ? f.notes : null, lessons: null, screenshots: [],
       playbookId: null, rulesFollowed: [],
+      account: f.account != null ? f.account : null,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     };
   }
 
   // Raw-execution (fill) format, e.g. the NinjaTrader add-on: one row per fill, paired into
-  // round-trip trades by UTIL.pairFills. Returns { incoming, skipped }.
-  function parseExecutionRows(rows, hIdx, num, parseDate) {
+  // round-trip trades by UTIL.pairFills. opts.allowedAccounts (array) restricts which accounts
+  // are imported; empty/absent = all. Returns { incoming, skipped, accounts } (accounts = every
+  // account name seen, so the UI can offer a picker).
+  function parseExecutionRows(rows, hIdx, num, parseDate, opts) {
+    opts = opts || {};
+    const allow = Array.isArray(opts.allowedAccounts) && opts.allowedAccounts.length
+      ? new Set(opts.allowedAccounts.map(a => String(a).toLowerCase())) : null;
     const H = rows[hIdx];
     const at = (row, i) => (i != null && row[i] != null) ? (String(row[i]).trim() || null) : null;
     const idIdx    = findHeaderCol(H, ['executionid', 'execid', 'exec id', 'fillid', 'fill id']);
@@ -1348,8 +1354,10 @@ const APP = (() => {
     const qtyIdx   = findHeaderCol(H, ['quantity', 'qty', 'size', 'contracts', 'filled', 'filledqty', 'filled qty']);
     const priceIdx = findHeaderCol(H, ['price', 'fillprice', 'fill price', 'avgprice', 'avg price', 'executionprice']);
     const commIdx  = findHeaderCol(H, ['commission', 'commissions', 'comm']);
+    const acctIdx  = findHeaderCol(H, ['account', 'account name', 'accountname', 'acct']);
     const fills = [];
     const seenIds = new Set();
+    const accounts = new Set();
     let skipped = 0;
     for (let r = hIdx + 1; r < rows.length; r++) {
       const row = rows[r];
@@ -1364,9 +1372,12 @@ const APP = (() => {
       const price = num(at(row, priceIdx));
       const time = parseDate(at(row, timeIdx));
       const symbol = (at(row, symIdx) || '').toUpperCase();
+      const account = at(row, acctIdx);
+      if (account) accounts.add(account);
       if (!symbol || !side || !qty || price == null || !time) { skipped++; continue; }
+      if (allow && !allow.has(String(account || '').toLowerCase())) { continue; }  // not a selected account
       if (execId) seenIds.add(execId);
-      fills.push({ time, symbol, action: side, quantity: qty, price, commission: num(at(row, commIdx)) || 0 });
+      fills.push({ time, symbol, action: side, quantity: qty, price, commission: num(at(row, commIdx)) || 0, account });
     }
     const incoming = UTIL.pairFills(fills).map(p => {
       const fm = UTIL.futuresMultiplier(p.symbol);
@@ -1377,10 +1388,10 @@ const APP = (() => {
         direction: p.direction, status: p.status,
         entryDate: p.entryDate, entryPrice: p.entryPrice, quantity: p.quantity,
         exitDate: p.exitDate, exitPrice: p.exitPrice,
-        commission: p.commission,
+        commission: p.commission, account: p.account,
       });
     });
-    return { incoming, skipped };
+    return { incoming, skipped, accounts: [...accounts] };
   }
 
   function importCSV(file) {
@@ -1425,12 +1436,13 @@ const APP = (() => {
       const perContract = Number(STORAGE.getSettings().commissionPerContract) || 0;
 
       const incoming = [];
-      let skipped = 0, errored = 0;
+      let skipped = 0, errored = 0, accounts = [];
 
       if (execFormat) {
-        const r = parseExecutionRows(rows, hIdx, num, parseDate);
+        const r = parseExecutionRows(rows, hIdx, num, parseDate, { allowedAccounts: opts.allowedAccounts });
         incoming.push(...r.incoming);
         skipped = r.skipped;
+        accounts = r.accounts;
       } else {
         for (let r = hIdx + 1; r < rows.length; r++) {
           const row = rows[r];
@@ -1513,6 +1525,9 @@ const APP = (() => {
         }
       }
 
+      // Discovery pass: report which accounts are present without importing anything.
+      if (opts.discoverOnly) return { added: 0, dupes: 0, skipped, errored, accounts, discoverOnly: true };
+
       // Merge into storage, de-duplicated against what's already there.
       const trades = STORAGE.getTrades();
       const seen = new Set(trades.map(tradeFingerprint));
@@ -1525,8 +1540,13 @@ const APP = (() => {
         added++;
       }
 
-      // Nothing usable at all (and no duplicates) -> the columns probably didn't map.
-      if (added === 0 && dupes === 0) { if (loud) csvDiagnostic(rows[hIdx], delim, map); return null; }
+      // Nothing usable at all (and no duplicates). For the fill/exec format this is normal
+      // (e.g. every account filtered out) -> still report discovered accounts to the caller.
+      if (added === 0 && dupes === 0) {
+        if (execFormat) return { added: 0, dupes: 0, skipped, errored, accounts };
+        if (loud) csvDiagnostic(rows[hIdx], delim, map);
+        return null;
+      }
       STORAGE.saveTrades(trades);
       if (loud) {
         const parts = [`Imported ${added} trade${added !== 1 ? 's' : ''}`];
@@ -1535,12 +1555,25 @@ const APP = (() => {
         if (errored) parts.push(`${errored} bad row${errored !== 1 ? 's' : ''} skipped`);
         UTIL.toast(parts.join(' · ') + '.', 'success');
       }
-      return { added, dupes, skipped, errored };
+      return { added, dupes, skipped, errored, accounts };
     } catch (err) {
       console.error(err);
       if (loud) UTIL.toast('CSV import failed: ' + (err.message || err), 'error');
       return null;
     }
+  }
+
+  // Remove already-imported trades that belong to an account not in `allowed` (case-insensitive).
+  // Only touches trades that carry an `account` tag (i.e. from execution sync) — manual and
+  // plain-CSV trades are never removed. Returns the number removed.
+  function pruneAccounts(allowed) {
+    const keep = new Set((allowed || []).map(a => String(a).toLowerCase()));
+    if (!keep.size) return 0;
+    const trades = STORAGE.getTrades();
+    const kept = trades.filter(t => !t.account || keep.has(String(t.account).toLowerCase()));
+    const removed = trades.length - kept.length;
+    if (removed) STORAGE.saveTrades(kept);
+    return removed;
   }
 
   function downloadCSVTemplate() {
@@ -1804,7 +1837,7 @@ const APP = (() => {
     navigate('dashboard');
   }
 
-  return { init, navigate, ingestCSV, openModal, closeModal, refresh: () => navigate(state.view) };
+  return { init, navigate, ingestCSV, pruneAccounts, openModal, closeModal, refresh: () => navigate(state.view) };
 })();
 
 document.addEventListener('DOMContentLoaded', APP.init);

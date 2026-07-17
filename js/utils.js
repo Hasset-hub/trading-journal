@@ -213,26 +213,31 @@ const UTIL = (() => {
   }
 
   // Pair a stream of raw executions (fills) into round-trip trades.
-  // Each fill: { time (ISO/parseable), symbol, action ('buy'|'sell'), quantity, price, commission }.
-  // A trade spans flat -> position -> flat (scale-ins/scale-outs are averaged). A fill that
-  // flips through zero is split into a close + a new open. Returns trade descriptors:
-  // { symbol, direction, quantity, entryPrice, exitPrice, entryDate, exitDate, commission, status }.
+  // Each fill: { time (ISO/parseable), symbol, action ('buy'|'sell'), quantity, price, commission, account }.
+  // Fills are grouped by account + symbol (never paired across accounts). A trade spans
+  // flat -> position -> flat (scale-ins/scale-outs are averaged). A fill that flips through
+  // zero is split into a close + a new open. Returns trade descriptors:
+  // { symbol, account, direction, quantity, entryPrice, exitPrice, entryDate, exitDate, commission, status }.
   function pairFills(fills) {
-    const bySym = {};
+    const groups = new Map();  // account symbol -> { symbol, account, fills:[] }
     for (const f of fills) {
       if (!f || !f.symbol || !f.action || !(f.quantity > 0) || f.price == null || !f.time) continue;
-      (bySym[f.symbol] || (bySym[f.symbol] = [])).push(f);
+      const key = (f.account || '') + ' ' + f.symbol;
+      let g = groups.get(key);
+      if (!g) { g = { symbol: f.symbol, account: f.account || null, fills: [] }; groups.set(key, g); }
+      g.fills.push(f);
     }
     const round2 = n => Math.round(n * 100) / 100;
     const trades = [];
-    for (const sym of Object.keys(bySym)) {
-      const list = bySym[sym].slice().sort((a, b) => new Date(a.time) - new Date(b.time));
+    for (const g of groups.values()) {
+      const list = g.fills.slice().sort((a, b) => new Date(a.time) - new Date(b.time));
       let pos = 0, cycle = null;
       const startCycle = (side, time) => ({ side, entryQty: 0, entryCost: 0, entryComm: 0, exitQty: 0, exitCost: 0, exitComm: 0, entryTime: time, exitTime: null });
       const emit = () => {
         if (!cycle || cycle.entryQty <= 0) { cycle = null; return; }
         trades.push({
-          symbol: sym,
+          symbol: g.symbol,
+          account: g.account,
           direction: cycle.side > 0 ? 'long' : 'short',
           quantity: cycle.entryQty,
           entryPrice: cycle.entryCost / cycle.entryQty,

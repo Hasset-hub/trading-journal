@@ -30,6 +30,16 @@ namespace NinjaTrader.NinjaScript.AddOns
 {
     public class TradingJournalExporter : AddOnBase
     {
+        // ─────────────────────────────────────────────────────────────────────────
+        // OPTIONAL: only export specific accounts (comma-separated). Leave empty ("")
+        // to export every account. Use this if you have more than one account paired
+        // (e.g. your own plus someone else's) and want only yours recorded.
+        // Example: private const string AccountFilter = "APEX-1234567";
+        // You can also choose accounts in the journal (Settings -> NinjaTrader Auto-Sync).
+        private const string AccountFilter = "";
+        // ─────────────────────────────────────────────────────────────────────────
+
+        private HashSet<string> allowedAccounts;
         private string filePath;
         private readonly object fileLock = new object();
         private readonly HashSet<string> written = new HashSet<string>();
@@ -45,6 +55,13 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 try
                 {
+                    allowedAccounts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string a in AccountFilter.Split(','))
+                    {
+                        string t = a.Trim();
+                        if (t.Length > 0) allowedAccounts.Add(t);
+                    }
+
                     string dir = Path.Combine(
                         Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
                         "TradingJournalSync");
@@ -109,6 +126,9 @@ namespace NinjaTrader.NinjaScript.AddOns
             {
                 Execution ex = e.Execution;
                 if (ex == null || ex.Instrument == null) return;
+
+                string acctName = ex.Account != null ? ex.Account.Name : "";
+                if (allowedAccounts.Count > 0 && !allowedAccounts.Contains(acctName)) return; // not a selected account
 
                 string id = ex.ExecutionId ?? "";
                 if (id.Length > 0 && !written.Add(id)) return; // already exported

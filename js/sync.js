@@ -45,27 +45,43 @@ const SYNC = (() => {
     return false;
   }
 
-  // Read every CSV in the folder and merge its trades (de-duplicated) into storage.
-  async function readAndIngest(handle) {
+  // Read every CSV in the folder, passing import options straight to APP.ingestCSV.
+  // Returns { added, dupes, files, accounts } (accounts = every account name seen).
+  async function readFolder(handle, importOpts) {
     let added = 0, dupes = 0, files = 0;
+    const accounts = new Set();
     for await (const entry of handle.values()) {
       if (entry.kind !== 'file' || !/\.csv$/i.test(entry.name)) continue;
       files++;
       try {
         const file = await entry.getFile();
         const text = await file.text();
-        const res = APP.ingestCSV(text, { source: 'silent' });
-        if (res) { added += res.added; dupes += res.dupes; }
+        const res = APP.ingestCSV(text, { source: 'silent', ...importOpts });
+        if (res) { added += res.added || 0; dupes += res.dupes || 0; (res.accounts || []).forEach(a => accounts.add(a)); }
       } catch (e) { console.warn('Sync: could not read', entry.name, e); }
     }
-    return { added, dupes, files };
+    return { added, dupes, files, accounts: [...accounts] };
   }
 
   async function doSync(handle, { silent }) {
     if (state.busy) return { added: 0, dupes: 0, files: 0 };
     state.busy = true;
     try {
-      const res = await readAndIngest(handle);
+      // First discover which accounts are in the folder (imports nothing).
+      const disc = await readFolder(handle, { discoverOnly: true });
+      setMeta({ knownAccounts: disc.accounts });
+      const allowed = getMeta().allowedAccounts;   // array once chosen; undefined until then
+
+      // More than one account and no choice yet -> ask before importing anyone's trades.
+      if (disc.accounts.length >= 2 && !Array.isArray(allowed)) {
+        renderAccounts();
+        updateUI();
+        if (!silent) UTIL.toast(`Found ${disc.accounts.length} accounts — choose which to import below.`, 'info');
+        return { added: 0, needsChoice: true };
+      }
+
+      const res = await readFolder(handle, { allowedAccounts: Array.isArray(allowed) ? allowed : null });
+      if (Array.isArray(allowed)) APP.pruneAccounts(allowed);
       setMeta({ lastSynced: Date.now() });
       if (res.added > 0 && APP.refresh) APP.refresh();
       if (!silent) {
@@ -74,9 +90,43 @@ const SYNC = (() => {
       } else if (res.added > 0) {
         UTIL.toast(`NinjaTrader: ${res.added} new trade${res.added !== 1 ? 's' : ''} synced.`, 'success');
       }
+      renderAccounts();
       updateUI();
       return res;
     } finally { state.busy = false; }
+  }
+
+  // Render the account picker (only when 2+ accounts have been seen in the folder).
+  function renderAccounts() {
+    const wrap = byId('nt-accounts');
+    if (!wrap) return;
+    const meta = getMeta();
+    const known = meta.knownAccounts || [];
+    if (known.length < 2) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+    const allowed = Array.isArray(meta.allowedAccounts) ? meta.allowedAccounts.map(a => a.toLowerCase()) : null; // null = all
+    wrap.style.display = '';
+    wrap.innerHTML =
+      `<div style="font-size:12.5px;color:var(--text-2);margin:2px 0 6px">Import trades from these accounts only:</div>` +
+      known.map(a => {
+        const checked = allowed === null || allowed.includes(a.toLowerCase());
+        return `<label style="display:inline-flex;align-items:center;gap:6px;margin:0 14px 6px 0;font-size:13px">
+          <input type="checkbox" class="nt-acct" value="${UTIL.escapeHtml(a)}" ${checked ? 'checked' : ''}> ${UTIL.escapeHtml(a)}</label>`;
+      }).join('') +
+      `<div style="margin-top:4px"><button class="btn btn-primary" id="nt-acct-apply">Apply account selection</button></div>`;
+    const apply = byId('nt-acct-apply');
+    if (apply) apply.addEventListener('click', applyAccounts);
+  }
+
+  async function applyAccounts() {
+    const boxes = [...document.querySelectorAll('.nt-acct')];
+    const allowed = boxes.filter(b => b.checked).map(b => b.value);
+    if (!allowed.length) { UTIL.toast('Pick at least one account to import.', 'error'); return; }
+    setMeta({ allowedAccounts: allowed });
+    const removed = APP.pruneAccounts(allowed);
+    if (state.handle) await doSync(state.handle, { silent: false });
+    if (removed) UTIL.toast(`Removed ${removed} trade${removed !== 1 ? 's' : ''} from unselected accounts.`, 'success');
+    if (APP.refresh) APP.refresh();
+    renderAccounts();
   }
 
   async function connect() {
@@ -101,8 +151,9 @@ const SYNC = (() => {
   async function disconnect() {
     try { await idbDel(HKEY); } catch (e) {}
     state.handle = null;
-    setMeta({ lastSynced: null });
+    localStorage.removeItem(META_KEY);   // forget last-synced, known/allowed accounts
     updateUI();
+    renderAccounts();
     UTIL.toast('NinjaTrader folder disconnected.', 'success');
   }
 
@@ -181,12 +232,14 @@ const SYNC = (() => {
   async function init() {
     wire();
     updateUI();
+    renderAccounts();
     if (!supported()) return;
     try {
       const handle = await idbGet(HKEY);
       if (!handle) return;
       state.handle = handle;
       updateUI();
+      renderAccounts();
       // Auto-sync only if permission is still granted (a prompt needs a user gesture).
       if (await verifyPermission(handle, false)) {
         await doSync(handle, { silent: true });
