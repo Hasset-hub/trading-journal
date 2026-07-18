@@ -198,6 +198,160 @@
     else if (e.key.toLowerCase() === 't') { const th = $('#theme-toggle'); if (th) th.click(); }
   });
 
+  /* ---------------------------------------------------------- Add Trade: step rail */
+  function buildStepRail() {
+    const rail = $('#trade-steps');
+    const form = $('#trade-form');
+    if (!rail || !form || rail.children.length) return;
+    const sections = $$('.form-section[data-step]', form);
+    rail.innerHTML = sections.map((s, i) =>
+      `<button type="button" class="trade-step" data-target="${i}">
+        ${ic(s.dataset.stepIcon || 'file')}<span>${s.dataset.step}</span><span class="step-num">${i + 1}</span>
+      </button>`).join('');
+    const steps = $$('.trade-step', rail);
+    steps.forEach((b) => b.addEventListener('click', () => {
+      sections[+b.dataset.target].scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    }));
+    // scroll-spy
+    const spy = new IntersectionObserver((entries) => {
+      entries.forEach((en) => {
+        if (!en.isIntersecting) return;
+        const idx = sections.indexOf(en.target);
+        steps.forEach((b, i) => {
+          b.classList.toggle('active', i === idx);
+          b.classList.toggle('done', i < idx);
+        });
+      });
+    }, { rootMargin: '-30% 0px -55% 0px', threshold: 0 });
+    sections.forEach((s) => spy.observe(s));
+  }
+
+  /* ---------------------------------------------------------- emoji chips for selects */
+  const EMOJI = {
+    calm: '😌', confident: '😎', neutral: '😐', anxious: '😰', excited: '🤩',
+    fearful: '😨', greedy: '🤑', frustrated: '😤', bored: '🥱', tired: '😴',
+    hopeful: '🤞', panicked: '😱',
+    yes: '✅', mostly: '🟡', partial: '🟡', no: '❌', 'no-plan': '🤷',
+  };
+  function buildEmojiChips() {
+    $$('select[data-emoji-chips]').forEach((sel) => {
+      if (sel.classList.contains('has-chips')) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'emoji-chips';
+      [...sel.options].forEach((opt) => {
+        if (!opt.value) return; // skip the "--" placeholder; deselecting a chip = empty
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'emoji-chip';
+        chip.dataset.value = opt.value;
+        const em = EMOJI[opt.value] || '·';
+        chip.innerHTML = `<span class="em">${em}</span><span>${opt.textContent.split('—')[0].trim()}</span>`;
+        chip.addEventListener('click', () => {
+          const on = sel.value === opt.value;
+          sel.value = on ? '' : opt.value;
+          sel.dispatchEvent(new Event('change', { bubbles: true }));
+          syncChips(sel);
+        });
+        wrap.appendChild(chip);
+      });
+      sel.classList.add('has-chips');
+      sel.insertAdjacentElement('afterend', wrap);
+      syncChips(sel);
+    });
+  }
+  function syncChips(sel) {
+    const wrap = sel.nextElementSibling;
+    if (!wrap || !wrap.classList.contains('emoji-chips')) return;
+    $$('.emoji-chip', wrap).forEach((c) => c.classList.toggle('selected', c.dataset.value === sel.value));
+  }
+  function syncAllChips() { $$('select.has-chips').forEach(syncChips); }
+
+  /* ---------------------------------------------------------- journal: date nav, streak, slider emoji */
+  const MOOD_EMOJI = ['😫', '😞', '😕', '😐', '🙂', '😊', '😄', '🤩', '🔥', '🚀'];
+  function sliderEmoji() {
+    [['mood', 'mood'], ['energy', 'energy']].forEach(([name, key]) => {
+      const rng = $(`#journal-form input[name="${name}"]`);
+      const em = $(`.slider-emoji[data-emoji-for="${key}"]`);
+      if (!rng || !em) return;
+      const set = () => {
+        const v = Math.min(9, Math.max(0, Math.round(+rng.value) - 1));
+        if (em.textContent !== MOOD_EMOJI[v]) {
+          em.textContent = MOOD_EMOJI[v];
+          em.classList.add('pop');
+          setTimeout(() => em.classList.remove('pop'), 200);
+        }
+      };
+      rng.addEventListener('input', set);
+      set();
+    });
+  }
+  function journalStreak() {
+    const badge = $('#journal-streak');
+    if (!badge || typeof STORAGE === 'undefined') return;
+    let streak = 0;
+    try {
+      const j = STORAGE.getJournal();
+      const day = 86400000;
+      const key = (d) => {
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+      };
+      let cur = new Date();
+      // streak may start today or yesterday (haven't journaled yet today)
+      if (!j[key(cur)]) cur = new Date(cur.getTime() - day);
+      while (j[key(cur)]) { streak++; cur = new Date(cur.getTime() - day); }
+    } catch (e) { /* ignore */ }
+    badge.textContent = `🔥 ${streak} day streak`;
+    badge.classList.toggle('on-fire', streak >= 3);
+  }
+  function shiftJournalDate(days) {
+    const inp = $('#journal-date');
+    if (!inp || !inp.value) return;
+    const d = new Date(inp.value + 'T12:00:00');
+    d.setDate(d.getDate() + days);
+    const p = (n) => String(n).padStart(2, '0');
+    inp.value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    inp.dispatchEvent(new Event('change', { bubbles: true }));
+    setTimeout(() => { fillAllRanges(); syncAllChips(); sliderEmojiRefresh(); }, 60);
+  }
+  function sliderEmojiRefresh() {
+    $$('#journal-form input[type="range"]').forEach((r) => r.dispatchEvent(new Event('input', { bubbles: false })));
+  }
+  function wireJournal() {
+    const prev = $('#journal-prev'), next = $('#journal-next'), today = $('#journal-today');
+    if (prev) prev.addEventListener('click', () => shiftJournalDate(-1));
+    if (next) next.addEventListener('click', () => shiftJournalDate(1));
+    if (today) today.addEventListener('click', () => {
+      const inp = $('#journal-date');
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, '0');
+      inp.value = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+      inp.dispatchEvent(new Event('change', { bubbles: true }));
+      setTimeout(() => { fillAllRanges(); syncAllChips(); sliderEmojiRefresh(); }, 60);
+    });
+    const form = $('#journal-form');
+    if (form) form.addEventListener('submit', () => setTimeout(journalStreak, 150));
+  }
+
+  /* ---------------------------------------------------------- playbooks: collapsible creator */
+  function wirePlaybooks() {
+    const btn = $('#playbook-new-btn'), card = $('#playbook-form-card');
+    if (!btn || !card) return;
+    const setOpen = (open) => {
+      card.classList.toggle('collapsed', !open);
+      btn.classList.toggle('open', open);
+      if (open) card.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'nearest' });
+    };
+    btn.addEventListener('click', () => setOpen(card.classList.contains('collapsed')));
+    // editing a playbook must reveal the form before app.js scrolls to it
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('[data-pb-edit]')) setOpen(true);
+      if (e.target.closest('#playbook-cancel')) setOpen(false);
+    }, true);
+    const form = $('#playbook-form');
+    if (form) form.addEventListener('submit', () => setTimeout(() => setOpen(false), 120));
+  }
+
   /* ---------------------------------------------------------- boot */
   function init() {
     watch('dashboard-stats', animateStats);
@@ -205,6 +359,26 @@
     watch('trades-tbody', indexRows);
     fillAllRanges();
     buildPalette();
+    buildStepRail();
+    buildEmojiChips();
+    sliderEmoji();
+    journalStreak();
+    wireJournal();
+    wirePlaybooks();
+    // re-sync chips + ranges when app.js populates forms (edit trade, load journal day, view switch)
+    document.addEventListener('click', (e) => {
+      if (e.target.closest('.nav-item, [data-edit], [data-journal-date], #form-reset')) {
+        setTimeout(() => { syncAllChips(); fillAllRanges(); sliderEmojiRefresh(); journalStreak(); }, 90);
+      }
+    });
+    // self-healing sync: app.js sets select/range values programmatically (edit trade, load a
+    // journal day) at times we can't predict, so keep the visual layer consistent whenever a
+    // form view is active. Cheap (a handful of class toggles), so a slow tick is plenty.
+    setInterval(() => {
+      if (document.querySelector('#view-new-trade.active, #view-journal.active')) {
+        syncAllChips(); fillAllRanges();
+      }
+    }, 400);
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();

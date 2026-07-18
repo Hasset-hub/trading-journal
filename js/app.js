@@ -215,9 +215,9 @@ const APP = (() => {
     const trades = STORAGE.getTrades();
     const el = document.getElementById('playbooks-list');
     if (!pbs.length) {
-      el.innerHTML = `<div class="card"><div class="empty-state">
+      el.innerHTML = `<div class="card pb-empty"><div class="empty-state">
         <div class="empty-title">No playbooks yet</div>
-        <div class="empty-sub">A playbook is a documented setup with a rules checklist. Create one above, then tag your trades to it to see which strategies actually make money.</div>
+        <div class="empty-sub">A playbook is a documented setup with a rules checklist. Hit <strong>New Playbook</strong> to create your first, then tag your trades to it to see which strategies actually make money.</div>
       </div></div>`;
       return;
     }
@@ -233,7 +233,7 @@ const APP = (() => {
           </div>
           <div class="playbook-actions">
             <button class="btn-icon" data-pb-edit="${pb.id}" title="Edit">${ICON('edit')}</button>
-            <button class="btn-icon" data-pb-del="${pb.id}" title="Delete">🗑</button>
+            <button class="btn-icon" data-pb-del="${pb.id}" title="Delete">${ICON('trash')}</button>
           </div>
         </div>
         ${pb.description ? `<p class="playbook-desc">${UTIL.escapeHtml(pb.description)}</p>` : ''}

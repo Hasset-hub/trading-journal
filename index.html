@@ -47,6 +47,9 @@
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></symbol>
     <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24"><path d="M4 22V4"/><path d="M4 4h12l-2 4 2 4H4"/></symbol>
+    <symbol id="i-mood" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14a4.5 3 0 0 0 7 0"/><path d="M9 10h.01M15 10h.01"/></symbol>
+    <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></symbol>
   </defs></svg>
 
   <div class="app">
@@ -192,11 +195,13 @@
 
         <!-- ============== NEW TRADE ============== -->
         <section id="view-new-trade" class="view">
+          <div class="trade-layout">
+          <nav class="trade-steps" id="trade-steps" aria-label="Form sections"></nav>
           <form id="trade-form" class="trade-form">
             <input type="hidden" name="id" />
 
-            <div class="form-section">
-              <div class="section-title">Trade Setup</div>
+            <div class="form-section" data-step="Setup" data-step-icon="trades">
+              <div class="section-title"><svg class="ic"><use href="#i-trades"/></svg> Trade Setup</div>
               <div class="form-grid">
                 <div class="field">
                   <label>Symbol <span class="req">*</span></label>
@@ -232,8 +237,8 @@
               </div>
             </div>
 
-            <div class="form-section">
-              <div class="section-title">Entry</div>
+            <div class="form-section" data-step="Entry" data-step-icon="trend-up">
+              <div class="section-title"><svg class="ic"><use href="#i-trend-up"/></svg> Entry</div>
               <div class="form-grid">
                 <div class="field">
                   <label>Entry Date/Time <span class="req">*</span></label>
@@ -262,8 +267,8 @@
               </div>
             </div>
 
-            <div class="form-section" id="exit-section">
-              <div class="section-title">Exit</div>
+            <div class="form-section" id="exit-section" data-step="Exit" data-step-icon="flag">
+              <div class="section-title"><svg class="ic"><use href="#i-flag"/></svg> Exit</div>
               <div class="form-grid">
                 <div class="field">
                   <label>Exit Date/Time</label>
@@ -284,18 +289,8 @@
               </div>
             </div>
 
-            <!-- Live Calc -->
-            <div class="live-stats" id="live-stats">
-              <div class="live-stat"><span>P&amp;L</span><strong id="live-pnl">$0.00</strong></div>
-              <div class="live-stat"><span>P&amp;L %</span><strong id="live-pnl-pct">0.00%</strong></div>
-              <div class="live-stat"><span>R-Multiple</span><strong id="live-r">0.00R</strong></div>
-              <div class="live-stat"><span>Risk:Reward</span><strong id="live-rr">1 : 0</strong></div>
-              <div class="live-stat"><span>Position Value</span><strong id="live-position">$0.00</strong></div>
-              <div class="live-stat"><span>Risk $</span><strong id="live-risk">$0.00</strong></div>
-            </div>
-
-            <div class="form-section">
-              <div class="section-title">Strategy &amp; Context</div>
+            <div class="form-section" data-step="Strategy" data-step-icon="playbooks">
+              <div class="section-title"><svg class="ic"><use href="#i-playbooks"/></svg> Strategy &amp; Context</div>
               <div class="form-grid">
                 <div class="field">
                   <label>Playbook</label>
@@ -345,8 +340,8 @@
               </div>
             </div>
 
-            <div class="form-section">
-              <div class="section-title">Trade Quality &amp; Analysis</div>
+            <div class="form-section" data-step="Quality" data-step-icon="reports">
+              <div class="section-title"><svg class="ic"><use href="#i-reports"/></svg> Trade Quality &amp; Analysis</div>
               <div class="form-grid">
                 <div class="field">
                   <label>MAE — Max Adverse Excursion (worst price)</label>
@@ -376,12 +371,12 @@
               </div>
             </div>
 
-            <div class="form-section">
-              <div class="section-title">Psychology</div>
+            <div class="form-section" data-step="Psych" data-step-icon="mood">
+              <div class="section-title"><svg class="ic"><use href="#i-mood"/></svg> Psychology</div>
               <div class="form-grid">
-                <div class="field">
+                <div class="field field-full">
                   <label>Emotion Before Entry</label>
-                  <select name="emotionBefore">
+                  <select name="emotionBefore" data-emoji-chips>
                     <option value="">--</option>
                     <option value="calm">Calm &amp; Focused</option>
                     <option value="confident">Confident</option>
@@ -395,9 +390,9 @@
                     <option value="tired">Tired</option>
                   </select>
                 </div>
-                <div class="field">
+                <div class="field field-full">
                   <label>Emotion During Trade</label>
-                  <select name="emotionDuring">
+                  <select name="emotionDuring" data-emoji-chips>
                     <option value="">--</option>
                     <option value="calm">Calm &amp; Focused</option>
                     <option value="confident">Confident</option>
@@ -413,9 +408,9 @@
                   <label>Confidence (1-10): <output id="conf-val">5</output></label>
                   <input type="range" name="confidence" min="1" max="10" value="5" oninput="document.getElementById('conf-val').value = this.value" />
                 </div>
-                <div class="field">
+                <div class="field field-full">
                   <label>Plan Followed?</label>
-                  <select name="planFollowed">
+                  <select name="planFollowed" data-emoji-chips>
                     <option value="">--</option>
                     <option value="yes">Yes — followed plan exactly</option>
                     <option value="mostly">Mostly — minor deviations</option>
@@ -426,8 +421,8 @@
               </div>
             </div>
 
-            <div class="form-section">
-              <div class="section-title">Notes &amp; Reflection</div>
+            <div class="form-section" data-step="Notes" data-step-icon="journal">
+              <div class="section-title"><svg class="ic"><use href="#i-journal"/></svg> Notes &amp; Reflection</div>
               <div class="field">
                 <label>Pre-trade Thesis</label>
                 <textarea name="thesis" rows="3" placeholder="Why are you taking this trade? What is your edge here? What is the setup, the trigger, and the invalidation?"></textarea>
@@ -452,11 +447,22 @@
               </div>
             </div>
 
-            <div class="form-actions">
-              <button type="button" class="btn btn-ghost" id="form-reset">Reset</button>
-              <button type="submit" class="btn btn-primary">Save Trade</button>
+            <div class="form-footer" id="form-footer">
+              <div class="live-stats" id="live-stats">
+                <div class="live-stat"><span>P&amp;L</span><strong id="live-pnl">$0.00</strong></div>
+                <div class="live-stat"><span>P&amp;L %</span><strong id="live-pnl-pct">0.00%</strong></div>
+                <div class="live-stat"><span>R-Multiple</span><strong id="live-r">0.00R</strong></div>
+                <div class="live-stat"><span>Risk:Reward</span><strong id="live-rr">1 : 0</strong></div>
+                <div class="live-stat"><span>Position Value</span><strong id="live-position">$0.00</strong></div>
+                <div class="live-stat"><span>Risk $</span><strong id="live-risk">$0.00</strong></div>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="btn btn-ghost" id="form-reset">Reset</button>
+                <button type="submit" class="btn btn-primary"><svg class="ic"><use href="#i-add"/></svg> Save Trade</button>
+              </div>
             </div>
           </form>
+          </div>
         </section>
 
         <!-- ============== ALL TRADES ============== -->
@@ -571,7 +577,14 @@
 
         <!-- ============== PLAYBOOKS ============== -->
         <section id="view-playbooks" class="view">
-          <div class="card">
+          <div class="playbooks-toolbar">
+            <p class="muted playbooks-hint">Documented setups with rule checklists — tag trades to see which strategies actually pay.</p>
+            <button type="button" class="btn btn-primary" id="playbook-new-btn"><svg class="ic"><use href="#i-add"/></svg> New Playbook</button>
+          </div>
+
+          <div id="playbooks-list" class="playbooks-grid"></div>
+
+          <div class="card collapsible-card collapsed" id="playbook-form-card">
             <div class="card-header">
               <h2 id="playbook-form-title">Create Playbook</h2>
               <button class="btn-link hidden" id="playbook-cancel">Cancel edit</button>
@@ -599,8 +612,6 @@
               </div>
             </form>
           </div>
-
-          <div id="playbooks-list"></div>
         </section>
 
         <!-- ============== AI COACH ============== -->
@@ -634,53 +645,66 @@
 
         <!-- ============== JOURNAL ============== -->
         <section id="view-journal" class="view">
-          <div class="card">
-            <div class="card-header">
+          <div class="card journal-card">
+            <div class="card-header journal-header">
               <h2>Daily Reflection</h2>
-              <input type="date" id="journal-date" class="input-sm" />
+              <div class="journal-date-nav">
+                <span class="streak-badge" id="journal-streak" title="Consecutive days journaled">🔥 0 day streak</span>
+                <button type="button" class="btn-icon date-nav-btn" id="journal-prev" aria-label="Previous day">‹</button>
+                <input type="date" id="journal-date" class="input-sm" />
+                <button type="button" class="btn-icon date-nav-btn" id="journal-next" aria-label="Next day">›</button>
+                <button type="button" class="btn btn-ghost btn-today" id="journal-today">Today</button>
+              </div>
             </div>
             <form id="journal-form" class="journal-form">
-              <div class="form-grid">
-                <div class="field">
-                  <label>Morning Prep — Market Bias &amp; Game Plan</label>
-                  <textarea name="prep" rows="4" placeholder="What is the broader market doing? What are your key levels, watchlist, and game plan for today?"></textarea>
+              <div class="journal-grid">
+                <div class="mind-check">
+                  <div class="mind-check-title"><svg class="ic"><use href="#i-mood"/></svg> Mind Check</div>
+                  <div class="field">
+                    <label>Mental State <span class="slider-readout"><span class="slider-emoji" data-emoji-for="mood">😐</span> <output id="mood-val">5</output>/10</span></label>
+                    <input type="range" name="mood" min="1" max="10" value="5" oninput="document.getElementById('mood-val').value = this.value" />
+                  </div>
+                  <div class="field">
+                    <label>Energy <span class="slider-readout"><span class="slider-emoji" data-emoji-for="energy">😐</span> <output id="energy-val">5</output>/10</span></label>
+                    <input type="range" name="energy" min="1" max="10" value="5" oninput="document.getElementById('energy-val').value = this.value" />
+                  </div>
+                  <div class="mind-check-row">
+                    <div class="field">
+                      <label>Sleep (hrs)</label>
+                      <input type="number" name="sleep" step="0.5" min="0" max="24" placeholder="7.5" />
+                    </div>
+                    <div class="field">
+                      <label>Routine?</label>
+                      <select name="routine" data-emoji-chips>
+                        <option value="">--</option>
+                        <option value="yes">Yes — full routine</option>
+                        <option value="partial">Partial</option>
+                        <option value="no">No</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
-                <div class="field">
-                  <label>Mental State Today (1-10): <output id="mood-val">5</output></label>
-                  <input type="range" name="mood" min="1" max="10" value="5" oninput="document.getElementById('mood-val').value = this.value" />
-                </div>
-                <div class="field">
-                  <label>Sleep (hours)</label>
-                  <input type="number" name="sleep" step="0.5" min="0" max="24" placeholder="7.5" />
-                </div>
-                <div class="field">
-                  <label>Energy Level (1-10): <output id="energy-val">5</output></label>
-                  <input type="range" name="energy" min="1" max="10" value="5" oninput="document.getElementById('energy-val').value = this.value" />
-                </div>
-                <div class="field">
-                  <label>Followed Routine?</label>
-                  <select name="routine">
-                    <option value="">--</option>
-                    <option value="yes">Yes — full routine</option>
-                    <option value="partial">Partial</option>
-                    <option value="no">No</option>
-                  </select>
+                <div class="field prep-field">
+                  <label><svg class="ic"><use href="#i-flag"/></svg> Morning Prep — Market Bias &amp; Game Plan</label>
+                  <textarea name="prep" rows="9" placeholder="What is the broader market doing? What are your key levels, watchlist, and game plan for today?"></textarea>
                 </div>
               </div>
-              <div class="field">
-                <label>What went well today?</label>
-                <textarea name="wins" rows="3"></textarea>
-              </div>
-              <div class="field">
-                <label>What went poorly? Mistakes to fix.</label>
-                <textarea name="losses" rows="3"></textarea>
-              </div>
-              <div class="field">
-                <label>Lessons &amp; Adjustments for Tomorrow</label>
-                <textarea name="adjustments" rows="3"></textarea>
+              <div class="reflect-grid">
+                <div class="field reflect-win">
+                  <label><svg class="ic"><use href="#i-trend-up"/></svg> What went well today?</label>
+                  <textarea name="wins" rows="4" placeholder="Wins, good decisions, rules you followed…"></textarea>
+                </div>
+                <div class="field reflect-loss">
+                  <label><svg class="ic"><use href="#i-trend-down"/></svg> What went poorly?</label>
+                  <textarea name="losses" rows="4" placeholder="Mistakes, rule breaks, tilt moments…"></textarea>
+                </div>
+                <div class="field reflect-adjust">
+                  <label><svg class="ic"><use href="#i-star"/></svg> Adjustments for tomorrow</label>
+                  <textarea name="adjustments" rows="4" placeholder="One concrete change for the next session…"></textarea>
+                </div>
               </div>
               <div class="form-actions">
-                <button type="submit" class="btn btn-primary">Save Entry</button>
+                <button type="submit" class="btn btn-primary"><svg class="ic"><use href="#i-journal"/></svg> Save Entry</button>
               </div>
             </form>
           </div>
