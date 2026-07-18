@@ -333,6 +333,114 @@
     if (form) form.addEventListener('submit', () => setTimeout(journalStreak, 150));
   }
 
+  /* ---------------------------------------------------------- custom dropdowns */
+  // Replaces the dated native <select> popup with a styled, animated panel while the real
+  // select stays in the DOM (hidden) as the source of truth — every app.js listener and
+  // programmatic value set keeps working. Options are rebuilt on every open, so selects
+  // whose options app.js repopulates (setup filter, playbook picker) are always current.
+  let openDD = null;
+  function closeDD() {
+    if (!openDD) return;
+    openDD.classList.remove('open');
+    const t = openDD.querySelector('.dd-trigger');
+    if (t) t.setAttribute('aria-expanded', 'false');
+    openDD = null;
+  }
+  function ddLabel(sel) {
+    const opt = sel.options[sel.selectedIndex];
+    const txt = opt ? opt.textContent.trim() : '';
+    return txt || '--';
+  }
+  function syncDDLabel(sel) {
+    const wrap = sel.closest('.dd');
+    if (!wrap) return;
+    const lab = wrap.querySelector('.dd-label');
+    if (lab && lab.textContent !== ddLabel(sel)) lab.textContent = ddLabel(sel);
+  }
+  function syncAllDD() { $$('select.has-dd').forEach(syncDDLabel); }
+
+  function enhanceSelects() {
+    if (window.matchMedia('(pointer: coarse)').matches) return; // phones: native pickers are better
+    $$('select').forEach((sel) => {
+      if (sel.classList.contains('has-chips') || sel.classList.contains('has-dd')) return;
+      sel.classList.add('has-dd');
+
+      const wrap = document.createElement('div');
+      wrap.className = 'dd' + (sel.classList.contains('select-sm') ? ' dd-inline' : '');
+      sel.parentNode.insertBefore(wrap, sel);
+      wrap.appendChild(sel);
+
+      const trigger = document.createElement('button');
+      trigger.type = 'button';
+      trigger.className = 'dd-trigger' + (sel.classList.contains('select-sm') ? ' dd-sm' : '');
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.innerHTML = `<span class="dd-label">${ddLabel(sel)}</span>${ic('chevron-down')}`;
+      wrap.appendChild(trigger);
+
+      const panel = document.createElement('div');
+      panel.className = 'dd-panel';
+      panel.setAttribute('role', 'listbox');
+      wrap.appendChild(panel);
+
+      let active = -1;
+      const build = () => {
+        const opts = [...sel.options];
+        panel.innerHTML = opts.map((o, i) =>
+          `<div class="dd-opt${o.value === sel.value ? ' selected' : ''}" role="option" data-i="${i}" aria-selected="${o.value === sel.value}">
+            <span class="dd-opt-label">${o.textContent.trim() || '--'}</span>${ic('check')}
+          </div>`).join('');
+        active = opts.findIndex((o) => o.value === sel.value);
+        $$('.dd-opt', panel).forEach((el) => {
+          el.addEventListener('click', () => pick(+el.dataset.i));
+          el.addEventListener('mousemove', () => setActiveOpt(+el.dataset.i));
+        });
+      };
+      const setActiveOpt = (i) => {
+        active = i;
+        $$('.dd-opt', panel).forEach((el) => el.classList.toggle('active', +el.dataset.i === i));
+      };
+      const pick = (i) => {
+        const o = sel.options[i];
+        if (!o) return;
+        sel.value = o.value;
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+        syncDDLabel(sel);
+        closeDD();
+        trigger.focus();
+      };
+      const open = () => {
+        if (openDD && openDD !== wrap) closeDD();
+        build();
+        // flip up if there's no room below; right-align if the trigger hugs the right edge
+        const r = trigger.getBoundingClientRect();
+        const panelH = Math.min(300, sel.options.length * 38 + 12);
+        wrap.classList.toggle('dd-up', window.innerHeight - r.bottom < panelH + 16 && r.top > panelH + 16);
+        wrap.classList.toggle('dd-right', r.left + Math.max(r.width, 200) > window.innerWidth - 16);
+        wrap.classList.add('open');
+        trigger.setAttribute('aria-expanded', 'true');
+        openDD = wrap;
+        if (active >= 0) { const el = panel.querySelector(`.dd-opt[data-i="${active}"]`); if (el) { setActiveOpt(active); el.scrollIntoView({ block: 'nearest' }); } }
+      };
+      trigger.addEventListener('click', () => (wrap.classList.contains('open') ? closeDD() : open()));
+      trigger.addEventListener('keydown', (e) => {
+        const isOpen = wrap.classList.contains('open');
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (!isOpen) { open(); return; }
+          const n = sel.options.length;
+          setActiveOpt(e.key === 'ArrowDown' ? Math.min(active + 1, n - 1) : Math.max(active - 1, 0));
+          const el = panel.querySelector('.dd-opt.active');
+          if (el) el.scrollIntoView({ block: 'nearest' });
+        } else if ((e.key === 'Enter' || e.key === ' ') && isOpen) { e.preventDefault(); pick(active); }
+        else if (e.key === 'Escape' && isOpen) { e.preventDefault(); closeDD(); }
+      });
+      sel.addEventListener('change', () => syncDDLabel(sel));
+    });
+  }
+  document.addEventListener('pointerdown', (e) => { if (openDD && !e.target.closest('.dd')) closeDD(); }, true);
+  window.addEventListener('resize', closeDD);
+
   /* ---------------------------------------------------------- playbooks: collapsible creator */
   function wirePlaybooks() {
     const btn = $('#playbook-new-btn'), card = $('#playbook-form-card');
@@ -361,6 +469,7 @@
     buildPalette();
     buildStepRail();
     buildEmojiChips();
+    enhanceSelects();
     sliderEmoji();
     journalStreak();
     wireJournal();
@@ -372,9 +481,10 @@
       }
     });
     // self-healing sync: app.js sets select/range values programmatically (edit trade, load a
-    // journal day) at times we can't predict, so keep the visual layer consistent whenever a
-    // form view is active. Cheap (a handful of class toggles), so a slow tick is plenty.
+    // journal day, load settings) at times we can't predict, so keep the visual layer
+    // consistent. Cheap (a handful of class toggles / text compares), so a slow tick is plenty.
     setInterval(() => {
+      syncAllDD();
       if (document.querySelector('#view-new-trade.active, #view-journal.active')) {
         syncAllChips(); fillAllRanges();
       }
