@@ -29,6 +29,8 @@ const STORAGE = (() => {
 
   function write(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
+    // Nudge the cloud layer (if present & signed in) to push this change.
+    if (window.CLOUD && CLOUD.markDirty) CLOUD.markDirty();
   }
 
   return {

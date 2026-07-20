@@ -2,7 +2,7 @@
 // Network-first: always fetch the freshest files when online (so deploys show up
 // immediately), fall back to cache when offline. Bump CACHE to invalidate old caches.
 
-const CACHE = 'tj-v19';
+const CACHE = 'tj-v20';
 const ASSETS = [
   '/',
   '/index.html',
@@ -18,6 +18,9 @@ const ASSETS = [
   '/js/chart.umd.js',
   '/js/ai.js',
   '/js/app.js',
+  '/js/config.js',
+  '/js/cloud.js',
+  '/js/auth-ui.js',
   '/js/sync.js',
   '/js/interactions.js',
   '/ninjatrader/TradingJournalExporter.cs',
