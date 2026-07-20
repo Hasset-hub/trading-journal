@@ -1381,6 +1381,12 @@ const APP = (() => {
     }
     const incoming = UTIL.pairFills(fills).map(p => {
       const fm = UTIL.futuresMultiplier(p.symbol);
+      // Broker reported no commission (common for prop accounts) -> apply the configured rate.
+      let commission = p.commission;
+      if (fm && (!commission || commission === 0) && p.status === 'closed') {
+        const rate = commissionRateFor(fm.root);
+        if (rate > 0) commission = Math.round(rate * p.quantity * 100) / 100;
+      }
       return newTrade({
         symbol: p.symbol,
         assetClass: fm ? 'futures' : 'stock',
@@ -1388,7 +1394,7 @@ const APP = (() => {
         direction: p.direction, status: p.status,
         entryDate: p.entryDate, entryPrice: p.entryPrice, quantity: p.quantity,
         exitDate: p.exitDate, exitPrice: p.exitPrice,
-        commission: p.commission, account: p.account,
+        commission, account: p.account,
       });
     });
     return { incoming, skipped, accounts: [...accounts] };
@@ -1402,6 +1408,19 @@ const APP = (() => {
     };
     reader.readAsText(file);
   }
+
+  // Round-turn commission per contract for a futures root (e.g. 'MNQ').
+  // Per-instrument rates (settings.commissionRates) win; commissionPerContract is the flat fallback.
+  function commissionRateFor(root) {
+    const s = STORAGE.getSettings();
+    const rates = s.commissionRates || {};
+    if (root && rates[root] != null && !isNaN(rates[root])) return Number(rates[root]);
+    return Number(s.commissionPerContract) || 0;
+  }
+
+  // Typical Tradovate-style micro round-turn rates, used only to prefill the
+  // commissions tool the first time — the user's saved rates always win.
+  const COMMISSION_HINTS = { MNQ: 1.24, MES: 1.24, MYM: 1.24, M2K: 1.24, MGC: 1.40, SIL: 1.40, MCL: 1.40, MBT: 1.24 };
 
   // Parse CSV text into trades and merge them (de-duplicated) into storage.
   // opts.source: 'file' (toast + diagnostic modal) or 'silent' (return summary only, no UI).
@@ -1433,7 +1452,6 @@ const APP = (() => {
       const actionColIdx = findHeaderCol(rows[hIdx], ['action', 'side', 'buy/sell', 'b/s', 'orderaction', 'order action']);
       const execFormat = !fillFormat && execIdIdx != null && actionColIdx != null;
       const rawAt = (row, i) => (i != null && row[i] != null) ? String(row[i]).trim() : null;
-      const perContract = Number(STORAGE.getSettings().commissionPerContract) || 0;
 
       const incoming = [];
       let skipped = 0, errored = 0, accounts = [];
@@ -1505,10 +1523,11 @@ const APP = (() => {
             const tags = (cell(row, 'tags') || '').split(/[;|]/).map(s => s.trim()).filter(Boolean);
             // Hold time from a broker "duration" column when present (e.g. "2h 50min 40sec")
             const holdMinutes = UTIL.parseDuration(cell(row, 'duration'));
-            // Commission: from the CSV if present, else apply the per-contract setting to futures
+            // Commission: from the CSV if present, else apply the per-contract rate to futures
             const csvCommission = num(cell(row, 'commission'));
-            const commission = csvCommission != null ? csvCommission
-              : (assetClass === 'futures' && perContract > 0 ? Math.round(perContract * quantity * 100) / 100 : 0);
+            const rtRate = commissionRateFor(fm ? fm.root : null);
+            const commission = (csvCommission != null && csvCommission !== 0) ? csvCommission
+              : (assetClass === 'futures' && rtRate > 0 ? Math.round(rtRate * quantity * 100) / 100 : 0);
 
             incoming.push(newTrade({
               symbol, assetClass, multiplier, direction,
@@ -1581,6 +1600,79 @@ const APP = (() => {
     const example = 'AAPL,long,2026-06-01 09:35,185.20,100,183.00,190.00,2026-06-01 11:10,189.10,1.00,0,Breakout,gap-up;high-volume';
     UTIL.downloadFile('trades_template.csv', header + '\n' + example, 'text/csv');
     UTIL.toast('Template downloaded.', 'success');
+  }
+
+  // ---- Apply commissions (per-instrument round-turn rates) + stamp hold times ----
+  function applyCommissionsTool() {
+    const trades = STORAGE.getTrades();
+    const settings = STORAGE.getSettings();
+    const saved = settings.commissionRates || {};
+    const roots = {};   // futures root -> { name, count, contracts }
+    let holdFix = 0;
+    for (const t of trades) {
+      const fm = UTIL.futuresMultiplier(t.symbol);
+      if (fm && t.status === 'closed' && (!t.commission || Number(t.commission) === 0)) {
+        const r = roots[fm.root] || (roots[fm.root] = { name: fm.name, count: 0, contracts: 0 });
+        r.count++; r.contracts += Number(t.quantity) || 0;
+      }
+      if (t.holdMinutes == null && t.entryDate && t.exitDate) holdFix++;
+    }
+    const rootKeys = Object.keys(roots);
+    if (!rootKeys.length && !holdFix) { UTIL.toast('All trades already have commissions and hold times. ✅', 'success'); return; }
+
+    const rateRows = rootKeys.map(root => {
+      const pre = saved[root] != null ? saved[root] : (COMMISSION_HINTS[root] != null ? COMMISSION_HINTS[root] : (Number(settings.commissionPerContract) || 1.24));
+      const r = roots[root];
+      return `<div class="field" style="margin-bottom:10px">
+        <label>${UTIL.escapeHtml(root)} — ${UTIL.escapeHtml(r.name)} <span class="mult-hint">$ / contract round-turn · ${r.count} trade${r.count !== 1 ? 's' : ''}, ${r.contracts} contracts</span></label>
+        <input type="number" step="0.01" min="0" class="comm-rate" data-root="${UTIL.escapeHtml(root)}" value="${pre}" />
+      </div>`;
+    }).join('');
+
+    let html = `<div class="trade-detail-section">
+      <p>${rootKeys.length ? `Found <strong>${rootKeys.reduce((s, k) => s + roots[k].count, 0)}</strong> closed futures trade${rootKeys.reduce((s, k) => s + roots[k].count, 0) !== 1 ? 's' : ''} without commissions. Rates below are typical Tradovate micro round-turns — adjust to match your statement, then Apply. They're saved and used automatically for every future import/sync.` : ''}</p>
+      ${rateRows}
+      ${holdFix ? `<p class="muted" style="font-size:12.5px">Also stamps hold time on <strong>${holdFix}</strong> trade${holdFix !== 1 ? 's' : ''} from entry/exit timestamps.</p>` : ''}
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="comm-apply">Apply</button>
+    </div>`;
+    openModal('Commissions & Hold Times', html);
+    document.querySelectorAll('#modal-content [data-close-modal]').forEach(b => b.addEventListener('click', closeModal));
+    document.getElementById('comm-apply').addEventListener('click', () => {
+      const rates = { ...saved };
+      let bad = false;
+      document.querySelectorAll('#modal-content .comm-rate').forEach(inp => {
+        const v = Number(inp.value);
+        if (isNaN(v) || v < 0) { bad = true; return; }
+        rates[inp.dataset.root] = v;
+      });
+      if (bad) { UTIL.toast('Rates must be 0 or positive numbers.', 'error'); return; }
+      const all = STORAGE.getTrades();
+      let commFixed = 0, commTotal = 0, holdStamped = 0;
+      for (const t of all) {
+        const fm = UTIL.futuresMultiplier(t.symbol);
+        if (fm && t.status === 'closed' && (!t.commission || Number(t.commission) === 0) && rates[fm.root] > 0) {
+          t.commission = Math.round(rates[fm.root] * (Number(t.quantity) || 0) * 100) / 100;
+          commTotal += t.commission;
+          t.updatedAt = new Date().toISOString();
+          commFixed++;
+        }
+        if (t.holdMinutes == null && t.entryDate && t.exitDate) {
+          const e = new Date(t.entryDate).getTime(), x = new Date(t.exitDate).getTime();
+          if (!isNaN(e) && !isNaN(x) && x >= e) { t.holdMinutes = (x - e) / 60000; holdStamped++; }
+        }
+      }
+      STORAGE.saveTrades(all);
+      STORAGE.saveSettings({ ...STORAGE.getSettings(), commissionRates: rates });
+      closeModal();
+      const parts = [];
+      if (commFixed) parts.push(`Commissions added to ${commFixed} trade${commFixed !== 1 ? 's' : ''} (${UTIL.fmtMoney(commTotal)} total)`);
+      if (holdStamped) parts.push(`hold time stamped on ${holdStamped}`);
+      UTIL.toast(parts.length ? parts.join(' · ') + '.' : 'Nothing needed changing.', 'success');
+      navigate(state.view);
+    });
   }
 
   // ---- Bulk-fix futures trades logged without a contract multiplier ----
@@ -1770,6 +1862,7 @@ const APP = (() => {
     document.getElementById('load-sample').addEventListener('click', loadSampleData);
     document.getElementById('clear-data').addEventListener('click', clearData);
     document.getElementById('fix-futures').addEventListener('click', fixFuturesTrades);
+    document.getElementById('apply-commissions').addEventListener('click', applyCommissionsTool);
     document.getElementById('import-csv').addEventListener('click', () => document.getElementById('import-csv-file').click());
     document.getElementById('import-csv-file').addEventListener('change', e => { if (e.target.files[0]) importCSV(e.target.files[0]); e.target.value = ''; });
     document.getElementById('download-template').addEventListener('click', downloadCSVTemplate);

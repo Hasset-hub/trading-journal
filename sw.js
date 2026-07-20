@@ -2,7 +2,7 @@
 // Network-first: always fetch the freshest files when online (so deploys show up
 // immediately), fall back to cache when offline. Bump CACHE to invalidate old caches.
 
-const CACHE = 'tj-v18';
+const CACHE = 'tj-v19';
 const ASSETS = [
   '/',
   '/index.html',
