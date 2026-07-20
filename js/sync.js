@@ -103,12 +103,14 @@ const SYNC = (() => {
     const meta = getMeta();
     const known = meta.knownAccounts || [];
     if (known.length < 2) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
-    const allowed = Array.isArray(meta.allowedAccounts) ? meta.allowedAccounts.map(a => a.toLowerCase()) : null; // null = all
+    // null = no choice made yet. With several accounts (e.g. someone else's is paired too),
+    // start UNCHECKED so nothing imports until the user consciously picks their own.
+    const allowed = Array.isArray(meta.allowedAccounts) ? meta.allowedAccounts.map(a => a.toLowerCase()) : null;
     wrap.style.display = '';
     wrap.innerHTML =
-      `<div style="font-size:12.5px;color:var(--text-2);margin:2px 0 6px">Import trades from these accounts only:</div>` +
+      `<div style="font-size:12.5px;color:var(--text-2);margin:2px 0 6px">Import trades from these accounts only — <strong>tick yours</strong>, then Apply:</div>` +
       known.map(a => {
-        const checked = allowed === null || allowed.includes(a.toLowerCase());
+        const checked = allowed !== null && allowed.includes(a.toLowerCase());
         return `<label style="display:inline-flex;align-items:center;gap:6px;margin:0 14px 6px 0;font-size:13px">
           <input type="checkbox" class="nt-acct" value="${UTIL.escapeHtml(a)}" ${checked ? 'checked' : ''}> ${UTIL.escapeHtml(a)}</label>`;
       }).join('') +

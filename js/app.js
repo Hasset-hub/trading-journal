@@ -1834,7 +1834,13 @@ const APP = (() => {
     document.querySelector('[name="entryDate"]').value = UTIL.localDatetimeNow();
 
     loadSettings();
-    navigate('dashboard');
+    // Deep link: #settings, #trades, ... opens that view directly
+    const hashView = (location.hash || '').replace('#', '');
+    navigate(PAGE_META[hashView] ? hashView : 'dashboard');
+    window.addEventListener('hashchange', () => {
+      const v = (location.hash || '').replace('#', '');
+      if (PAGE_META[v]) navigate(v);
+    });
   }
 
   return { init, navigate, ingestCSV, pruneAccounts, openModal, closeModal, refresh: () => navigate(state.view) };
